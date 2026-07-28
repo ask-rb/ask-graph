@@ -1,3 +1,9 @@
+## [0.1.3] — 2026-07-28
+
+### Changed
+
+- **Added `ask-state-providers` dependency** — `Ask::State::Memory` is now provided by the `ask-state-providers` gem (moved from `ask-core` 0.8.0). `ask-graph` automatically loads it.
+
 ## [0.1.2] — 2026-07-28
 
 ### Changed

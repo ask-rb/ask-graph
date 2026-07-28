@@ -2,7 +2,8 @@ source "https://rubygems.org"
 
 gemspec
 
-gem "ask-core"
+gem "ask-core", ">= 0.8"
+gem "ask-state-providers", ">= 0.3"
 
 gem "ostruct"
 gem "csv"
