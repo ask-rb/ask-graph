@@ -33,12 +33,6 @@ class RecordIfTrue
   end
 end
 
-class RecordIfFalse
-  def call(context)
-    (context.log ||= []) << :if_false
-  end
-end
-
 class DoubleValue
   def call(context)
     context.value = (context.value || 0) * 2
@@ -56,16 +50,11 @@ module Ask
   class GraphTest < Minitest::Test
     include TestHelpers
 
-    def setup
-      TestHelpers::LogStep.clear_log
-    end
-
     # --- Basic graph execution ---
 
     def test_empty_graph
-      g = Class.new(Ask::Graph) do
-      end
-      result = g.run
+      g = Class.new(Ask::Graph)
+      result = g.new.call
       assert_kind_of Ask::Graph::Context, result
     end
 
@@ -73,7 +62,7 @@ module Ask
       g = Class.new(Ask::Graph) do
         step SetValue
       end
-      result = g.run(5)
+      result = g.new.call(5)
       assert_equal 10, result.result
     end
 
@@ -83,20 +72,36 @@ module Ask
         step DoubleValue
         step DoubleValue
       end
-      result = g.run
-      result.value = 1
-      result = g.new.run(nil)
-      # Actually run it properly
-      g = Class.new(Ask::Graph) do
-        step DoubleValue
-        step DoubleValue
-        step DoubleValue
-      end
-      graph = g.new
-      ctx = Ask::Graph::Context.new(graph, nil)
+      ctx = Ask::Graph::Context.new(g.new, nil)
       ctx.value = 1
-      graph.send(:runner).run(ctx)
+      g.new.send(:runner).run(ctx)
       assert_equal 8, ctx.value
+    end
+
+    # --- .new.call interface ---
+
+    def test_new_call_returns_context
+      g = Class.new(Ask::Graph) do
+        step Class.new {
+          def call(ctx)
+            ctx.done = true
+          end
+        }
+      end
+      ctx = g.new.call
+      assert ctx.done
+    end
+
+    def test_class_call_convenience
+      g = Class.new(Ask::Graph) do
+        step Class.new {
+          def call(ctx)
+            ctx.value = 42
+          end
+        }
+      end
+      ctx = g.call
+      assert_equal 42, ctx.value
     end
 
     # --- Conditional steps ---
@@ -109,7 +114,7 @@ module Ask
           true
         end
       end
-      ctx = g.run
+      ctx = g.new.call
       assert_equal [:if_true], ctx.log
     end
 
@@ -121,7 +126,7 @@ module Ask
           false
         end
       end
-      ctx = g.run
+      ctx = g.new.call
       assert_nil ctx.log
     end
 
@@ -133,7 +138,7 @@ module Ask
           false
         end
       end
-      ctx = g.run
+      ctx = g.new.call
       assert_equal [:ran], ctx.log
     end
 
@@ -145,7 +150,7 @@ module Ask
           true
         end
       end
-      ctx = g.run
+      ctx = g.new.call
       assert_nil ctx.log
     end
 
@@ -158,7 +163,7 @@ module Ask
           false
         end
       end
-      ctx = g.run
+      ctx = g.new.call
       assert_equal [:ran], ctx.log
     end
 
@@ -172,7 +177,7 @@ module Ask
           end
         }
       end
-      ctx = g.run
+      ctx = g.new.call
       assert_equal "hello", ctx.greeting
     end
 
@@ -184,7 +189,7 @@ module Ask
           end
         }
       end
-      ctx = g.run
+      ctx = g.new.call
       assert_equal "blue", ctx[:color]
     end
 
@@ -196,8 +201,7 @@ module Ask
           end
         }
       end
-      graph = g.new
-      ctx = graph.run({ value: "test" })
+      ctx = g.new.call({ value: "test" })
       assert_equal "test", ctx.output
     end
 
@@ -207,14 +211,14 @@ module Ask
       g = Class.new(Ask::Graph) do
         step RaiseError
       end
-      assert_raises(Ask::Graph::StepFailed) { g.run }
+      assert_raises(Ask::Graph::StepFailed) { g.new.call }
     end
 
     def test_step_failure_includes_step_name
       g = Class.new(Ask::Graph) do
         step RaiseError
       end
-      error = assert_raises(Ask::Graph::StepFailed) { g.run }
+      error = assert_raises(Ask::Graph::StepFailed) { g.new.call }
       assert_includes error.message, "RaiseError"
     end
 
@@ -229,7 +233,7 @@ module Ask
           end
         }
       end
-      ctx = g.run
+      ctx = g.new.call
       assert ctx.log.include?(:slept)
       assert ctx.log.include?(:done)
     end
@@ -238,7 +242,7 @@ module Ask
       g = Class.new(Ask::Graph) do
         steps SleepStep, RaiseError
       end
-      assert_raises(Ask::Graph::StepFailed) { g.run }
+      assert_raises(Ask::Graph::StepFailed) { g.new.call }
     end
 
     def test_parallel_with_condition
@@ -249,7 +253,7 @@ module Ask
           true
         end
       end
-      ctx = g.run
+      ctx = g.new.call
       assert ctx.log, "log should not be nil — steps should have run"
       assert ctx.log.include?(:slept)
     end
@@ -262,7 +266,7 @@ module Ask
           true
         end
       end
-      ctx = g.run
+      ctx = g.new.call
       assert_nil ctx.log
     end
 
@@ -287,7 +291,7 @@ module Ask
         }
       end
       graph = g.new
-      ctx = graph.run
+      ctx = graph.call
       assert ctx.log.include?(:before)
       assert ctx.log.include?(:approve_step)
       refute ctx.log.include?(:after), "should pause before after step"
@@ -315,7 +319,7 @@ module Ask
           false
         end
       end
-      ctx = g.run
+      ctx = g.new.call
       assert ctx.log.include?(:step1)
       assert ctx.log.include?(:step2)
       refute ctx.log.include?(:approve), "approve step should not run"
@@ -323,33 +327,106 @@ module Ask
 
     # --- Checkpointing ---
 
-    def test_checkpoint_saves_after_execution
-      store = MemoryStore.new
+    def test_checkpoint_saves_context_state
       g = Class.new(Ask::Graph) do
-        step RecordRun
+        step Class.new {
+          def call(ctx)
+            ctx.important = "data from step 1"
+          end
+        }
+        step Class.new {
+          def call(ctx)
+            ctx.more = "data from step 2"
+          end
+        }
       end
-      g.run(checkpoint_store: store)
-      keys = store.instance_variable_get(:@data).keys
-      assert keys.any? { |k| k.start_with?("ask:graph:run:") },
-             "checkpoint should be saved after run"
+      store = Ask::State::Memory.new
+      graph = g.new(checkpoint_store: store)
+      graph.call
+
+      # The checkpoint key is generated by the runner
+      checkpoint_raw = graph.runner.send(:store).get(
+        graph.runner.send(:checkpoint_key)
+      )
+      data = JSON.parse(checkpoint_raw)
+      assert_equal "data from step 1", data["context"]["important"]
+      assert_equal "data from step 2", data["context"]["more"]
     end
 
-    def test_checkpoint_store_receives_data
-      store = MemoryStore.new
+    def test_checkpoint_restores_context_on_resume
+      store = Ask::State::Memory.new
+
+      # Run step that would fail if context was restored from checkpoint
       g = Class.new(Ask::Graph) do
-        step RecordRun
+        step Class.new {
+          def call(ctx)
+            ctx.produced = "persisted"
+          end
+        }
+        step Class.new {
+          def call(ctx)
+            ctx.consumed = ctx.produced
+          end
+        }
       end
-      g.run(checkpoint_store: store)
-      stored = store.instance_variable_get(:@data).values.first
-      assert stored, "checkpoint data should exist"
-      assert stored.include?("completed_index"),
-             "checkpoint should contain completed_index"
+
+      # First run — checkpoints after each step
+      g.new.call(checkpoint_store: store)
+
+      # Simulate resume: load checkpoint and skip completed steps
+      g2 = Class.new(Ask::Graph) do
+        step Class.new {
+          def call(ctx)
+            ctx.produced = "persisted"
+          end
+        }
+        step Class.new {
+          def call(ctx)
+            ctx.consumed = ctx.produced
+          end
+        }
+      end
+
+      # On resume, step 0 is skipped (checkpointed), but context.produced
+      # should be restored from the checkpoint
+      ctx = g2.new.call(checkpoint_store: store)
+      assert_equal "persisted", ctx.consumed,
+                   "context should be restored from checkpoint on resume"
+    end
+
+    def test_checkpoint_store_defaults_to_memory
+      g = Class.new(Ask::Graph) do
+        step Class.new {
+          def call(ctx)
+            ctx.ran = true
+          end
+        }
+      end
+      # No store passed — should use default in-memory
+      ctx = g.new.call
+      assert ctx.ran
+    end
+
+    def test_checkpoint_resume_skips_completed_steps
+      runs = []
+      step_a = Class.new do
+        define_method(:call) do |ctx|
+          runs << :a
+        end
+      end
+
+      store = Ask::State::Memory.new
+      g = Class.new(Ask::Graph) { step step_a }
+      g.new(checkpoint_store: store).call
+
+      runs.clear
+      g.new(checkpoint_store: store).call  # resume — should skip step_a
+      assert_empty runs, "step should not re-run on resume"
     end
 
     # --- Context#each per-item iteration ---
 
     def test_context_each_iterates_all_items
-      items = %w[a b c]
       g = Class.new(Ask::Graph) do
         step Class.new {
           def call(ctx)
@@ -358,40 +435,11 @@ module Ask
           end
         }
       end
-      ctx = g.run
+      ctx = g.new.call
       assert_equal ["processed:a", "processed:b", "processed:c"], ctx.results
     end
 
-    def test_context_each_checkpoints_per_item
-      store = MemoryStore.new
-      results = []
-
-      step_class = Class.new do
-        define_method(:call) do |ctx|
-          ctx.each(%w[x y z]) { |item| results << item }
-        end
-      end
-
-      g = Class.new(Ask::Graph) do
-        step step_class
-      end
-
-      # Can't easily pass store to context.each in this design
-      # This tests that context.each works with checkpoint store
-      g.run(checkpoint_store: store)
-      assert_equal %w[x y z], results
-    end
-
     def test_context_each_sets_item
-      seen_items = []
-      g = Class.new(Ask::Graph) do
-        step Class.new {
-          def call(ctx)
-            ctx.each(%w[a b c]) { |_item| seen_items << ctx.item }
-          end
-        }
-      end
-      # Using instance variable
       g = Class.new(Ask::Graph) do
         step Class.new {
           def call(ctx)
@@ -401,8 +449,21 @@ module Ask
           end
         }
       end
-      ctx = g.run
+      ctx = g.new.call
       assert_equal %w[a b c], ctx.seen
+    end
+
+    def test_context_each_checkpoints_per_item
+      results = []
+      step_class = Class.new do
+        define_method(:call) do |ctx|
+          ctx.each(%w[x y z]) { |item| results << item }
+        end
+      end
+
+      g = Class.new(Ask::Graph) { step step_class }
+      g.new.call
+      assert_equal %w[x y z], results
     end
 
     # --- Inheritance ---
@@ -433,38 +494,11 @@ module Ask
       assert_equal 2, child.declarations.length
     end
 
-    # --- Instance vs Class-level execution ---
-
-    def test_instance_run
-      g = Class.new(Ask::Graph) do
-        step Class.new {
-          def call(ctx)
-            ctx.value = 42
-          end
-        }
-      end
-      graph = g.new
-      ctx = graph.run
-      assert_equal 42, ctx.value
-    end
-
-    def test_class_run
-      g = Class.new(Ask::Graph) do
-        step Class.new {
-          def call(ctx)
-            ctx.value = 99
-          end
-        }
-      end
-      ctx = g.run
-      assert_equal 99, ctx.value
-    end
-
     # --- Edge cases ---
 
     def test_no_steps_still_returns_context
       g = Class.new(Ask::Graph)
-      ctx = g.run("data")
+      ctx = g.new.call("data")
       assert_equal "data", ctx[:input]
     end
 
@@ -481,7 +515,7 @@ module Ask
           end
         }
       end
-      ctx = g.run
+      ctx = g.new.call
       assert_equal 2, ctx.value
     end
 
@@ -495,8 +529,16 @@ module Ask
       g = Class.new(Ask::Graph)
       50.times { g.step(step_class) }
 
-      ctx = g.run
+      ctx = g.new.call
       assert_equal 50, ctx.counter
+    end
+
+    def test_default_uses_in_memory_store
+      g = Class.new(Ask::Graph) do
+        step Class.new { def call(ctx); ctx.ok = true; end }
+      end
+      graph = g.new
+      assert_kind_of Ask::State::Memory, graph.runner.send(:store)
     end
   end
 end

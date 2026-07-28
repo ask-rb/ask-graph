@@ -16,28 +16,11 @@ module Ask
   #     step BookAppointment
   #   end
   #
-  # @example With parallel steps
-  #   class SyncData < Ask::Graph
-  #     step FetchRecords
+  #   result = HandleCall.new.call(recording: "call.wav")
   #
-  #     steps CrmUpdate, CalendarSync, SendNotification
-  #
-  #     step ConfirmResponse
-  #   end
-  #
-  # @example With human-in-the-loop
-  #   class ProcessBooking < Ask::Graph
-  #     step BookAppointment
-  #     approve ReviewBooking, if: :expensive?
-  #     step ConfirmBooking
-  #   end
-  #
-  # @example With per-item looping
-  #   class SendReminders < Ask::Graph
-  #     step FetchAppointments
-  #     step RemindEach   # calls context.each(:appointments) internally
-  #     step MarkComplete
-  #   end
+  # @example With checkpointing
+  #   store = Ask::State::Memory.new
+  #   result = HandleCall.new.call(input, checkpoint_store: store)
   #
   class Graph
     class << self
@@ -95,26 +78,22 @@ module Ask
         }
       end
 
-      # Create a new instance and run the graph.
-      # @param input [Object] optional initial input
+      # Convenience: create instance and call.
+      # @param input [Object] optional input
       # @param checkpoint_store [#set, #get, #delete] optional persistent store
       # @return [Ask::Graph::Context] the completed context
-      def run(input = nil, checkpoint_store: nil)
-        new(checkpoint_store: checkpoint_store).run(input)
+      def call(input = nil, checkpoint_store: nil)
+        new(checkpoint_store: checkpoint_store).call(input)
       end
-
-      # Resume a paused graph with human input.
-      # @param input [Object] the human's input
-      # @param checkpoint_store [#set, #get, #delete] the same store used for the original run
-      # @return [Ask::Graph::Context] the completed context
-      def resume(input:, checkpoint_store:)
-        new(checkpoint_store: checkpoint_store).resume(input: input)
-      end
+      alias run call
     end
 
     # @param checkpoint_store [#set, #get, #delete, nil] optional persistent store
+    #   Defaults to in-memory store (no durability). Pass a persistent store
+    #   for crash recovery.
     def initialize(checkpoint_store: nil)
-      @runner = Runner.new(self.class.declarations, checkpoint_store: checkpoint_store)
+      store = checkpoint_store || Ask::State::Memory.new
+      @runner = Runner.new(self.class.declarations, checkpoint_store: store)
       @context = nil
     end
 
@@ -127,14 +106,15 @@ module Ask
     # Run the graph with the given input.
     # @param input [Object] optional initial input
     # @return [Ask::Graph::Context] the completed context
-    def run(input = nil)
+    def call(input = nil)
       @context = Context.new(self, input)
       @runner.run(@context)
       @context
     rescue => e
-      raise unless e.class.name&.end_with?("Paused")
+      raise unless e.is_a?(Paused)
       @context
     end
+    alias run call
 
     # Resume a paused graph with human input.
     # @param input [Object] the human's input

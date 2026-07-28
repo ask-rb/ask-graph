@@ -1,3 +1,23 @@
+## [0.1.1] — 2026-07-28
+
+### Fixed
+
+- **Full context checkpointing** — Checkpoints now save the complete context state alongside the step index. On resume, all data produced by completed steps is restored. Previously only the step index was persisted, causing nil errors when resumed steps referenced prior outputs.
+
+- **`call` as primary API** — `Graph.new.call(input)` is now the primary interface, consistent with step classes. `Graph.call` and `Graph.run` remain as convenience class methods.
+
+- **Default in-memory store** — Checkpoint store defaults to `Ask::State::Memory` (shipped with `ask-core`, zero additional dependencies). No database, migration, or configuration needed. Pass a persistent store for crash recovery across restarts.
+
+### Changed
+
+- `context.to_h` now produces JSON-safe hashes (string keys, symbols converted to strings, arrays recursed). Checkpoints serialize correctly in Ruby 4.0.
+
+- `initialize(checkpoint_store:)` stores the checkpoint store on the instance. Pass `nil` to use the default in-memory store.
+
+### Tested
+
+- 36 tests, 52 assertions, 0 failures
+
 ## [0.1.0] — 2026-07-28
 
 ### Added

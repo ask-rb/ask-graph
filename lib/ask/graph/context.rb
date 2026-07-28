@@ -30,8 +30,12 @@ module Ask
         @each_items = nil
         @item = nil
         @mutex = Mutex.new
+        @resume_input = nil
         @store[:input] = input if input
       end
+
+      # @return [Object, nil] input provided on resume for approval steps
+      attr_accessor :resume_input
 
       # Access a stored value by method name.
       def method_missing(name, *args, &block)
@@ -89,14 +93,30 @@ module Ask
         @item = nil
       end
 
-      # @return [Hash] serializable snapshot of the context state
+      # @return [Hash] serializable snapshot of the context state.
+      # All keys and values are converted to JSON-safe types (string keys,
+      # symbols converted to strings, arrays recursed).
       def to_h
         @mutex.synchronize do
-          serializable = {}
-          @store.each do |k, v|
-            serializable[k] = v.respond_to?(:to_h) ? v.to_h : v
-          end
-          serializable
+          deep_json_safe(@store)
+        end
+      end
+
+      private
+
+      # Recursively convert a value to a JSON-safe structure.
+      def deep_json_safe(value)
+        case value
+        when Hash
+          value.each_with_object({}) { |(k, v), h| h[k.to_s] = deep_json_safe(v) }
+        when Array
+          value.map { |v| deep_json_safe(v) }
+        when Symbol
+          value.to_s
+        when String, Numeric, true, false, nil
+          value
+        else
+          value.respond_to?(:to_h) ? deep_json_safe(value.to_h) : value.to_s
         end
       end
     end
