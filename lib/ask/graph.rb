@@ -83,15 +83,16 @@ module Ask
       # @param checkpoint_store [#set, #get, #delete] optional persistent store
       # @return [Ask::Graph::Context] the completed context
       def call(input = nil, checkpoint_store: nil)
-        new(checkpoint_store: checkpoint_store).call(input)
+        new(input, checkpoint_store: checkpoint_store).call
       end
       alias run call
     end
 
-    # @param checkpoint_store [#set, #get, #delete, nil] optional persistent store
-    #   Defaults to in-memory store (no durability). Pass a persistent store
-    #   for crash recovery.
-    def initialize(checkpoint_store: nil)
+    # @param input [Object, nil] initial input for the graph execution
+    # @param checkpoint_store [#set, #get, #delete, nil] optional persistent store.
+    #   Defaults to in-memory store. Pass a persistent store for crash recovery.
+    def initialize(input = nil, checkpoint_store: nil)
+      @input = input
       store = checkpoint_store || Ask::State::Memory.new
       @runner = Runner.new(self.class.declarations, checkpoint_store: store)
       @context = nil
@@ -103,11 +104,10 @@ module Ask
     # @return [Ask::Graph::Context, nil] the shared context
     attr_reader :context
 
-    # Run the graph with the given input.
-    # @param input [Object] optional initial input
+    # Execute the graph.
     # @return [Ask::Graph::Context] the completed context
-    def call(input = nil)
-      @context = Context.new(self, input)
+    def call
+      @context = Context.new(self, @input)
       @runner.run(@context)
       @context
     rescue => e

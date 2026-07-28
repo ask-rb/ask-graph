@@ -1,3 +1,21 @@
+## [0.1.2] — 2026-07-28
+
+### Changed
+
+- **`Graph.new(input).call` API** — input is now passed to the constructor, not to `call`. This reads more naturally: create a graph with data, then execute it. `Graph.call(input, checkpoint_store:)` class method still available for convenience.
+
+  ```ruby
+  # Before
+  HandleCall.new.call(recording: "call.wav")
+
+  # After
+  HandleCall.new({ recording: "call.wav" }).call
+  ```
+
+### Tested
+
+- 36 tests, 52 assertions, 0 failures
+
 ## [0.1.1] — 2026-07-28
 
 ### Fixed

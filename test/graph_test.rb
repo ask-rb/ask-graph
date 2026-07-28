@@ -62,7 +62,7 @@ module Ask
       g = Class.new(Ask::Graph) do
         step SetValue
       end
-      result = g.new.call(5)
+      result = g.new(5).call
       assert_equal 10, result.result
     end
 
@@ -201,7 +201,7 @@ module Ask
           end
         }
       end
-      ctx = g.new.call({ value: "test" })
+      ctx = g.new({ value: "test" }).call
       assert_equal "test", ctx.output
     end
 
@@ -371,7 +371,7 @@ module Ask
       end
 
       # First run — checkpoints after each step
-      g.new.call(checkpoint_store: store)
+      g.new(checkpoint_store: store).call
 
       # Simulate resume: load checkpoint and skip completed steps
       g2 = Class.new(Ask::Graph) do
@@ -389,7 +389,7 @@ module Ask
 
       # On resume, step 0 is skipped (checkpointed), but context.produced
       # should be restored from the checkpoint
-      ctx = g2.new.call(checkpoint_store: store)
+      ctx = g2.new(checkpoint_store: store).call
       assert_equal "persisted", ctx.consumed,
                    "context should be restored from checkpoint on resume"
     end
@@ -498,7 +498,7 @@ module Ask
 
     def test_no_steps_still_returns_context
       g = Class.new(Ask::Graph)
-      ctx = g.new.call("data")
+      ctx = g.new("data").call
       assert_equal "data", ctx[:input]
     end
 
