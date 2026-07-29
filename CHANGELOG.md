@@ -1,3 +1,51 @@
+## [0.6.0] — 2026-07-27
+
+### Changed
+
+- **All steps must be POROs** — the framework no longer auto-detects
+  `Ask::Graph` subclasses used directly as steps. Every `step` declaration
+  must be a plain Ruby class with a `call(context)` method. This eliminates
+  ambiguity at the `step` call site.
+
+  ```ruby
+  # Before — worked but was ambiguous
+  step NotifyCustomer   # is this a Graph or a PORO?
+
+  # After — always a PORO
+  step NotifyCustomer   # definitely a PORO
+  ```
+
+- **Sub-graph composition via `Workflow.call(context)`** — compose workflows
+  by calling another graph's class method with the current context. The
+  method auto-detects a Context argument and handles export → run → import.
+
+  ```ruby
+  class NotifyCustomer
+    def call(context)
+      NotifyCustomerWorkflow.call(context)
+    end
+  end
+  ```
+
+  `Graph.call(ctx)` is the same API users already know from controllers:
+  `Graph.call(params)`. Just pass a Context instead of data.
+
+### Added
+
+- **`Context#run(graph_class)`** — convenience wrapper around the export →
+  create → call → import pattern.
+
+- **Hash inputs flatten into context keys** — when a Hash is passed as
+  input, its keys are directly accessible on the context in addition to
+  `context.input`. Enables sub-graphs to transparently read outer values.
+
+- **`Context#export_data`** and **`Context#import(other)`** — public API
+  for sub-graph data passing.
+
+### Tested
+
+- 85 tests, 111 assertions, 0 failures
+
 ## [0.5.0] — 2026-07-27
 
 ### Added
