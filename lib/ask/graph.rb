@@ -11,28 +11,32 @@ module Ask
   # lifecycle hooks.
   #
   # @example Basic workflow
-  #   class HandleCall < Ask::Graph
+  #   class HandleCall::Workflow < Ask::Graph
   #     step Transcribe
   #     step Classify, if: :needs_classification?
   #     step BookAppointment
   #   end
   #
   # @example Sub-graph composition
-  #   # Define a workflow
-  #   class NotifyCustomerWorkflow < Ask::Graph
-  #     step SendEmail
-  #     step LogNotification
+  #   # Define a reusable workflow
+  #   module NotifyCustomer
+  #     class Workflow < Ask::Graph
+  #       step SendEmail
+  #       step LogNotification
+  #     end
   #   end
   #
   #   # Wrap it in a PORO step
-  #   class NotifyCustomer
-  #     def call(context)
-  #       NotifyCustomerWorkflow.call(context)
+  #   module OrderFulfillment
+  #     class NotifyCustomer
+  #       def call(context)
+  #         NotifyCustomer::Workflow.call(context)
+  #       end
   #     end
   #   end
   #
   #   # Compose — every step is a PORO
-  #   class HandleOrder < Ask::Graph
+  #   class OrderFulfillment::Workflow < Ask::Graph
   #     step ValidatePayment
   #     step NotifyCustomer
   #     step ShipOrder
@@ -65,7 +69,8 @@ module Ask
       def inherited(subclass)
         super
         subclass.instance_variable_set(:@declarations, declarations.dup)
-        subclass.instance_variable_set(:@lifecycle_hooks, lifecycle_hooks.dup)
+        subclass.instance_variable_set(:@lifecycle_hooks,
+          lifecycle_hooks.transform_values(&:dup))
       end
 
       # --- Timeout ---
@@ -203,12 +208,12 @@ module Ask
       # are merged back into the original context automatically.
       #
       # @example Standalone — pass data
-      #   MyGraph.call({ user: "alice" })
+      #   OrderFulfillment::Workflow.call({ user: "alice" })
       #
       # @example Inside a step — pass the outer context
-      #   class MyStep
+      #   class ValidatePayment
       #     def call(context)
-      #       OtherGraph.call(context)
+      #       PaymentGateway::Workflow.call(context)
       #     end
       #   end
       def call(input = nil, storage: nil)

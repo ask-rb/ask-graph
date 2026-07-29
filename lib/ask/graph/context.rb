@@ -131,9 +131,10 @@ module Ask
       # @param graph_class [Class < Ask::Graph] the graph to run
       # @return [Ask::Graph::Context] the sub-graph's context
       # @example
+      #   # Inside a step PORO
       #   class CalculateShipping
       #     def call(context)
-      #       context.run(ShippingWorkflow)
+      #       context.run(Shipping::Workflow)
       #     end
       #   end
       def run(graph_class)

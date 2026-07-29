@@ -6,28 +6,30 @@
 gem "ask-graph"
 ```
 
-## Quick Start
-
-```ruby
-require "ask-graph"
-
-# Define a workflow
-class ProcessOrder < Ask::Graph
-  step ValidateOrder
-  step ChargeCustomer,  if: :valid?
-  step SendConfirmation, if: :valid?
-  step NotifyAdmin,     unless: :valid?
-
-  private
-
-  def valid?
-    context.order.valid?
-  end
-end
-
-# Run it
-result = ProcessOrder.run(order: order)
-```
+	## Quick Start
+	
+	```ruby
+	require "ask-graph"
+	
+	# Define a workflow
+	module ProcessOrder
+	  class Workflow < Ask::Graph
+	    step ValidateOrder
+	    step ChargeCustomer,  if: :valid?
+	    step SendConfirmation, if: :valid?
+	    step NotifyAdmin,     unless: :valid?
+	
+	    private
+	
+	    def valid?
+	      context.order.valid?
+	    end
+	  end
+	end
+	
+	# Run it
+	result = ProcessOrder::Workflow.call(order: order)
+	```
 
 ## Steps
 
@@ -41,86 +43,96 @@ class ValidateOrder
 end
 ```
 
-### Sequential steps
+	### Sequential steps
+	
+	```ruby
+	module HandleCall
+	  class Workflow < Ask::Graph
+	    step Transcribe
+	    step Classify
+	    step Respond
+	  end
+	end
+	```
+	
+	### Conditional steps
+	
+	```ruby
+	module HandleCall
+	  class Workflow < Ask::Graph
+	    step BookAppointment,  if: :booking?
+	    step EmergencyAlert,   if: :emergency?
+	    step HandleInquiry,    unless: :known_intent?
+	
+	    private
+	
+	    def booking?   = context.intent == "booking"
+	    def emergency? = context.intent == "emergency"
+	    def known_intent? = %w[booking emergency inquiry].include?(context.intent)
+	  end
+	end
+	```
 
-```ruby
-class HandleCall < Ask::Graph
-  step Transcribe
-  step Classify
-  step Respond
-end
-```
+	### Parallel steps
+	
+	Use `steps` (plural) to run multiple steps simultaneously:
+	
+	```ruby
+	module SyncData
+	  class Workflow < Ask::Graph
+	    step FetchRecords
+	
+	    # All three run in parallel
+	    steps CrmUpdate, CalendarSync, SendNotification
+	
+	    step ConfirmResponse
+	  end
+	end
+	```
+	
+	### Human-in-the-loop (approve)
+	
+	`approve` runs a step, then pauses the workflow and waits for external input:
+	
+	```ruby
+	module ProcessBooking
+	  class Workflow < Ask::Graph
+	    step BookAppointment
+	    approve ReviewBooking, if: :expensive?
+	    step ConfirmBooking
+	  end
+	end
+	```
+	
+	After `approve` pauses, resume with:
+	
+	```ruby
+	graph = ProcessBooking::Workflow.new
+	result = graph.run              # runs, pauses after ReviewBooking
+	result = graph.resume(input: "approved")  # resumes, runs ConfirmBooking
+	```
 
-### Conditional steps
-
-```ruby
-class HandleCall < Ask::Graph
-  step BookAppointment,  if: :booking?
-  step EmergencyAlert,   if: :emergency?
-  step HandleInquiry,    unless: :known_intent?
-
-  private
-
-  def booking?   = context.intent == "booking"
-  def emergency? = context.intent == "emergency"
-  def known_intent? = %w[booking emergency inquiry].include?(context.intent)
-end
-```
-
-### Parallel steps
-
-Use `steps` (plural) to run multiple steps simultaneously:
-
-```ruby
-class SyncData < Ask::Graph
-  step FetchRecords
-
-  # All three run in parallel
-  steps CrmUpdate, CalendarSync, SendNotification
-
-  step ConfirmResponse
-end
-```
-
-### Human-in-the-loop (approve)
-
-`approve` runs a step, then pauses the workflow and waits for external input:
-
-```ruby
-class ProcessBooking < Ask::Graph
-  step BookAppointment
-  approve ReviewBooking, if: :expensive?
-  step ConfirmBooking
-end
-```
-
-After `approve` pauses, resume with:
-
-```ruby
-graph = ProcessBooking.new
-result = graph.run              # runs, pauses after ReviewBooking
-result = graph.resume(input: "approved")  # resumes, runs ConfirmBooking
-```
-
-### Per-item loops
-
-Use `context.each` inside a step for iteration with automatic checkpointing:
-
-```ruby
-class SendVoiceReminders
-  def call(context)
-    context.each(context.appointments) do |appt|
-      PhoneService.call(appt.number, appt.message)
-    end
-  end
-end
-
-class DailyReminders < Ask::Graph
-  step FetchAppointments
-  step SendVoiceReminders  # loops with per-item checkpointing
-  step MarkComplete
-end
-```
+	### Per-item loops
+	
+	Use `context.each` inside a step for iteration with automatic checkpointing:
+	
+	```ruby
+	class SendVoiceReminders
+	  def call(context)
+	    context.each(context.appointments) do |appt|
+	      PhoneService.call(appt.number, appt.message)
+	    end
+	  end
+	end
+	
+	module DailyReminders
+	  class Workflow < Ask::Graph
+	    step FetchAppointments
+	    step SendVoiceReminders  # loops with per-item checkpointing
+	    step MarkComplete
+	  end
+	end
+	```
 
 If the process crashes mid-loop, it resumes from the last completed item.
 
@@ -146,33 +158,48 @@ end
 
 ### Sub-workflows
 
-A step can delegate to another workflow:
+A step can delegate to another workflow by calling `Workflow.call(context)`.
+The context is automatically exported, passed to the sub-workflow, and
+results are merged back on completion:
 
 ```ruby
-class IntentHandler
-  def call(context)
-    case context.intent
-    when "booking"
-      BookingWorkflow.new.call(context)  # sub-workflow as a step
-    when "emergency"
-      EmergencyWorkflow.new.call(context)
+module OrderFulfillment
+  class NotifyCustomer
+    def call(context)
+      NotifyCustomer::Workflow.call(context)
     end
+  end
+
+  class Workflow < Ask::Graph
+    step ValidatePayment
+    step NotifyCustomer
+    step ShipOrder
+  end
+end
+```
+
+Or use `context.run` for the same thing:
+
+```ruby
+class NotifyCustomer
+  def call(context)
+    context.run(NotifyCustomer::Workflow)
   end
 end
 ```
 
 ### Checkpointing
 
-Pass a checkpoint store to make workflows durable across crashes:
+Pass a `storage` backend to make workflows durable across crashes:
 
 ```ruby
 store = Ask::State::Memory.new  # or Redis, SQLite, etc.
 
 # Runs through all steps, saving after each
-result = MyWorkflow.run(input, checkpoint_store: store)
+result = OrderFulfillment::Workflow.call(input, storage: store)
 
 # If a crash occurs, resume from the last completed step
-result = MyWorkflow.run(input, checkpoint_store: store)
+result = OrderFulfillment::Workflow.call(input, storage: store)
 ```
 
 ### Error handling
@@ -180,12 +207,14 @@ result = MyWorkflow.run(input, checkpoint_store: store)
 Failed steps raise `Ask::Graph::StepFailed` with the step name:
 
 ```ruby
-class MyGraph < Ask::Graph
-  step RiskyOperation
+module MyWorkflow
+  class Workflow < Ask::Graph
+    step RiskyOperation
+  end
 end
 
 begin
-  MyGraph.run
+  MyWorkflow::Workflow.call
 rescue Ask::Graph::StepFailed => e
   puts e.message  # => "RiskyOperation failed: connection timeout"
 end

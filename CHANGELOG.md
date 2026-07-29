@@ -1,3 +1,38 @@
+## [0.6.1] — 2026-07-27
+
+### Fixed
+
+- **Hooks leak between classes** — `inherited` now deep-copies lifecycle
+  hook arrays instead of sharing them. Previously, a child class's
+  `after_step :foo` would mutate the parent class's hook arrays, causing
+  hooks to fire multiple times in sibling classes.
+
+### Changed
+
+- **Docs updated** to use the `Module::Workflow` convention throughout.
+  Recommended layout:
+
+  ```
+  app/workflows/
+    notify_customer/
+      workflow.rb          # module NotifyCustomer; class Workflow < Ask::Graph
+      steps/
+        send_email.rb
+        log_notification.rb
+    order_fulfillment/
+      workflow.rb
+      steps/
+        validate_payment.rb
+        notify_customer.rb
+        ship_order.rb
+  ```
+
+  Sub-graph composition via `Workflow.call(context)` or `context.run(Workflow)`.
+
+### Tested
+
+- 85 tests, 111 assertions, 0 failures
+
 ## [0.6.0] — 2026-07-27
 
 ### Changed
