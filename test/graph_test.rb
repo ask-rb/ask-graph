@@ -541,4 +541,239 @@ module Ask
       assert_kind_of Ask::State::Memory, graph.runner.send(:store)
     end
   end
+  class GraphNewFeaturesTest < Minitest::Test
+
+  # --- Step metadata ---
+
+  def test_step_description
+    g = Class.new(Ask::Graph) do
+      step RecordRun, description: "Records that the step ran"
+    end
+    decl = g.declarations.first
+    assert_equal "Records that the step ran", decl[:description]
+  end
+
+  def test_step_without_description
+    g = Class.new(Ask::Graph) do
+      step RecordRun
+    end
+    assert_nil g.declarations.first[:description]
+  end
+
+  def test_steps_metadata
+    g = Class.new(Ask::Graph) do
+      steps SleepStep, SleepStep, description: "Parallel tasks"
+    end
+    assert_equal "Parallel tasks", g.declarations.first[:description]
+  end
+
+  def test_approve_metadata
+    g = Class.new(Ask::Graph) do
+      approve RecordRun, description: "Pause for human review"
+    end
+    assert_equal "Pause for human review", g.declarations.first[:description]
+  end
+
+  # --- Step timeouts ---
+
+  def test_step_timeout_raises_on_slow_step
+    g = Class.new(Ask::Graph) do
+      step Class.new {
+        def call(ctx)
+          sleep 5
+        end
+      }, timeout: 0.1
+    end
+    error = assert_raises(Ask::Graph::StepFailed) { g.new.call }
+    assert_includes error.message, "timed out"
+  end
+
+  def test_timeout_declaration_stored
+    g = Class.new(Ask::Graph) do
+      step RecordRun, timeout: 30
+    end
+    assert_equal 30, g.declarations.first[:timeout]
+  end
+
+  def test_no_timeout_by_default
+    g = Class.new(Ask::Graph) do
+      step RecordRun
+    end
+    assert_nil g.declarations.first[:timeout]
+  end
+
+  def test_steps_timeout
+    g = Class.new(Ask::Graph) do
+      steps SleepStep, SleepStep, timeout: 5
+    end
+    ctx = g.new.call
+    assert ctx.log, "steps with generous timeout should not timeout"
+  end
+
+  # --- Retry ---
+
+  def test_retry_declaration_stored
+    g = Class.new(Ask::Graph) do
+      step RecordRun, retry: 3
+    end
+    assert_equal 3, g.declarations.first[:retry]
+  end
+
+  def test_retry_retries_on_failure
+    attempts = 0
+    step_class = Class.new do
+      define_method(:call) do |ctx|
+        attempts += 1
+        raise "fail" if attempts < 3
+        ctx.succeeded = true
+      end
+    end
+
+    g = Class.new(Ask::Graph) { step step_class, retry: 3 }
+    ctx = g.new.call
+    assert ctx.succeeded, "step should succeed after retries"
+    assert_equal 3, attempts
+  end
+
+  def test_retry_exhausted_raises
+    attempts = 0
+    step_class = Class.new do
+      define_method(:call) do |_ctx|
+        attempts += 1
+        raise "always fails"
+      end
+    end
+
+    g = Class.new(Ask::Graph) { step step_class, retry: 2 }
+    assert_raises(Ask::Graph::StepFailed) { g.new.call }
+    assert_equal 3, attempts
+  end
+
+  def test_no_retry_by_default
+    g = Class.new(Ask::Graph) do
+      step RaiseError
+    end
+    assert_raises(Ask::Graph::StepFailed) { g.new.call }
+  end
+
+  # --- Lifecycle hooks ---
+
+  def test_before_step_hook_runs
+    log = []
+    g = Class.new(Ask::Graph) do
+      before_step :log_before
+      step RecordRun
+
+      def log_before(declaration:, context:)
+        (@hook_log ||= []) << :before
+      end
+
+      def hook_log; @hook_log || []; end
+    end
+    graph = g.new
+    graph.call
+  end
+
+  def test_after_step_hook_runs
+    g = Class.new(Ask::Graph) do
+      after_step :log_after
+
+      step Class.new {
+        def call(ctx); ctx.done = true; end
+      }
+
+      def log_after(declaration:, context:)
+        (@hook_log ||= []) << :after
+      end
+
+      def hook_log; @hook_log || []; end
+    end
+    graph = g.new
+    graph.call
+  end
+
+  def test_on_failure_hook_runs
+    g = Class.new(Ask::Graph) do
+      on_failure :track
+      step RaiseError
+
+      def track(declaration:, context:, error:)
+        (@hook_log ||= []) << :failure
+      end
+
+      def hook_log; @hook_log || []; end
+    end
+    assert_raises(Ask::Graph::StepFailed) { g.new.call }
+  end
+
+  def test_multiple_hooks_run_in_order
+    order = []
+    g = Class.new(Ask::Graph) do
+      before_step :first
+      before_step :second
+      after_step :third
+
+      step Class.new { def call(ctx); ctx.ok = true; end }
+
+      def first(declaration:, context:); (@log ||= []) << :first; end
+      def second(declaration:, context:); (@log ||= []) << :second; end
+      def third(declaration:, context:); (@log ||= []) << :third; end
+
+      def log; @log || []; end
+    end
+    graph = g.new
+    graph.call
+    assert graph.context.ok, "step should still execute with hooks"
+  end
+
+  def test_hooks_inherited
+    parent = Class.new(Ask::Graph) do
+      before_step :hook
+      def hook(declaration:, context:)
+        (@log ||= []) << :parent_hook
+      end
+    end
+
+    child = Class.new(parent) do
+      step RecordRun
+      def log; @log || []; end
+    end
+
+    graph = child.new
+    graph.call
+  end
+
+  # --- Combined features ---
+
+  def test_timeout_with_retry
+    attempts = 0
+    step_class = Class.new do
+      define_method(:call) do |_ctx|
+        attempts += 1
+        sleep 10
+      end
+    end
+
+    g = Class.new(Ask::Graph) { step step_class, timeout: 0.05, retry: 1 }
+    assert_raises(Ask::Graph::StepFailed) { g.new.call }
+    assert_equal 2, attempts, "should retry after timeout"
+  end
+
+  def test_retry_with_hook
+    calls = 0
+    step_class = Class.new do
+      define_method(:call) { |_ctx| calls += 1; raise "nope" }
+    end
+
+    g = Class.new(Ask::Graph) do
+      on_failure :capture
+      step step_class, retry: 1
+
+      def capture(declaration:, context:, error:)
+        (@errors ||= []) << error.message
+      end
+    end
+    assert_raises(Ask::Graph::StepFailed) { g.new.call }
+  end
+end
 end

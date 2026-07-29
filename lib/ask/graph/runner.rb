@@ -1,41 +1,39 @@
 # frozen_string_literal: true
 
 require "json"
+require "timeout"
 
 module Ask
   class Graph
     # Error raised when a step fails.
     class StepFailed < StandardError; end
 
+    # Error raised when a step times out.
+    class StepTimeout < StandardError; end
+
     # Error raised when a step pauses for human approval.
     class Paused < StandardError; end
 
     # Executes the declared steps of a graph, managing checkpointing,
-    # condition evaluation, parallel execution, and human-in-the-loop pauses.
-    #
-    # Checkpoints save the full context state after each step so that
-    # crashes resume from the last completed step with all data intact.
-    # Uses an in-memory store by default; pass a persistent store for
-    # crash recovery across restarts.
+    # condition evaluation, parallel execution, timeouts, retries,
+    # lifecycle hooks, and human-in-the-loop pauses.
     class Runner
-      # @return [Array<Hash>] step declarations with name, type, condition
-      attr_reader :declarations
-
-      # @return [#set, #get, #delete] the checkpoint store
-      attr_reader :store
+      attr_reader :declarations, :store
 
       # @param declarations [Array<Hash>] step declarations
-      # @param checkpoint_store [#set, #get, #delete] key-value store.
-      #   Defaults to in-memory (no durability across restarts).
-      def initialize(declarations, checkpoint_store: nil)
+      # @param checkpoint_store [#set, #get, #delete] key-value store
+      # @param hooks [Hash] lifecycle hook method names
+      # @param graph_instance [Object] the graph instance (for hooks)
+      def initialize(declarations, checkpoint_store: nil,
+                     hooks: { before_step: [], after_step: [], on_failure: [] },
+                     graph_instance: nil)
         @declarations = declarations
         @store = checkpoint_store
+        @hooks = hooks
+        @graph = graph_instance
         @completed_steps = []
       end
 
-      # Run the graph from the beginning or resume from the last checkpoint.
-      # @param context [Ask::Graph::Context] the shared context
-      # @return [Ask::Graph::Context] the completed context
       def run(context)
         resume_index = load_checkpoint(context)
 
@@ -47,7 +45,10 @@ module Ask
             next
           end
 
-          execute_step(decl, context)
+          run_hooks(:before_step, decl, context)
+          execute_with_retry(decl, context)
+          run_hooks(:after_step, decl, context)
+
           record_completion(idx, :completed)
           save_checkpoint(context, idx)
         end
@@ -55,32 +56,66 @@ module Ask
         context
       end
 
-      # Resume a paused graph with human input.
-      # @param context [Ask::Graph::Context] the context at pause point
-      # @param input [Object] the human's input
-      # @return [Ask::Graph::Context] the completed context
       def resume(context, input:)
         context.resume_input = input
         run(context)
       end
 
-      # Get the index to resume from for an {Context#each} iteration.
-      # @param items [Array] the full list of items
-      # @return [Integer, nil] the index to resume from, or nil
       def resume_index_for(items)
         key = each_checkpoint_key
         raw = @store.get(key)
         raw ? raw.to_i : nil
       end
 
-      # Checkpoint after a single iteration of {Context#each}.
-      # @param index [Integer] the completed iteration index
       def checkpoint_each!(index)
         key = each_checkpoint_key
         @store.set(key, index.to_s)
       end
 
       private
+
+      def execute_with_retry(decl, context)
+        retries = decl[:retry] || 0
+
+        (retries + 1).times do |attempt|
+          begin
+            run_with_timeout(decl, context, decl[:timeout])
+            return
+          rescue StepFailed => e
+            run_hooks(:on_failure, decl, context, error: e)
+            raise if attempt >= retries
+            sleep backoff_seconds(attempt, decl[:backoff])
+          end
+        end
+      end
+
+      def run_with_timeout(decl, context, timeout_value)
+        if timeout_value
+          ::Timeout.timeout(timeout_value) { execute_step(decl, context) }
+        else
+          execute_step(decl, context)
+        end
+      rescue ::Timeout::Error
+        raise StepFailed, "#{decl[:name]} timed out after #{timeout_value}s"
+      end
+
+      def backoff_seconds(attempt, strategy)
+        return 0 if attempt == 0
+        case strategy
+        when :exponential then 2 ** attempt
+        when :constant then 2
+        else 2 ** attempt
+        end
+      end
+
+      def run_hooks(hook_type, decl, context, error: nil)
+        @hooks[hook_type]&.each do |method_name|
+          next unless @graph&.respond_to?(method_name, true)
+          args = { declaration: decl, context: context }
+          args[:error] = error if error
+          @graph.send(method_name, **args)
+        end
+      end
 
       def execute_step(decl, context)
         case decl[:type]
@@ -98,19 +133,17 @@ module Ask
         instance.call(context)
       rescue Paused
         raise
-      rescue StandardError => e
+      rescue => e
         raise StepFailed, "#{klass.name} failed: #{e.message}"
       end
 
       def run_parallel(classes, _name, context)
         threads = classes.map do |klass|
           Thread.new do
-            begin
-              instance = klass.new
-              instance.call(context)
-            rescue StandardError => e
-              raise StepFailed, "#{klass.name} failed: #{e.message}"
-            end
+            instance = klass.new
+            instance.call(context)
+          rescue => e
+            raise StepFailed, "#{klass.name} failed: #{e.message}"
           end
         end
         threads.each(&:join)
@@ -149,8 +182,6 @@ module Ask
         "#{checkpoint_key}:each"
       end
 
-      # Save checkpoint with full context state so resumed graphs
-      # have access to all data produced by completed steps.
       def save_checkpoint(context, idx)
         data = {
           completed_index: idx,
@@ -160,8 +191,6 @@ module Ask
         @store.set(checkpoint_key, JSON.generate(data))
       end
 
-      # Load checkpoint and restore context state if available.
-      # Returns the completed_index to skip, or nil for a fresh run.
       def load_checkpoint(context)
         raw = @store.get(checkpoint_key)
         return nil unless raw

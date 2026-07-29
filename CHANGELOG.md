@@ -1,3 +1,39 @@
+## [0.2.0] — 2026-07-29
+
+### Added
+
+- **Step timeouts** — `step SlowOp, timeout: 30` raises `StepFailed` if a step takes longer than the given seconds.
+
+  ```ruby
+  step FetchApi, timeout: 10, retry: 2
+  ```
+
+- **Retry policy** — `step FlakyOp, retry: 3` retries failed steps up to the specified number of times with exponential backoff.
+
+  ```ruby
+  step ApiCall, retry: 3
+  ```
+
+- **Lifecycle hooks** — `before_step`, `after_step`, and `on_failure` hooks for observability, logging, and monitoring.
+
+  ```ruby
+  class MyGraph < Ask::Graph
+    before_step :log_start
+    after_step  :log_completion
+    on_failure  :alert_team
+
+    step ProcessPayment, timeout: 15, retry: 2
+  end
+  ```
+
+  Hooks receive `declaration:` and `context:` keyword args. `on_failure` also receives `error:`.
+
+- **Step metadata** — `step X, description: "Human-readable label"` stores metadata in the declaration for debugging and monitoring.
+
+### Tested
+
+- 55 tests, 73 assertions, 0 failures
+
 ## [0.1.3] — 2026-07-28
 
 ### Changed
