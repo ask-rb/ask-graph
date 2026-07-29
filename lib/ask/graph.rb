@@ -17,15 +17,24 @@ module Ask
   #     step BookAppointment
   #   end
   #
-  # @example Sub-graph composition (reuse a graph as a step)
-  #   class NotifyCustomer < Ask::Graph
+  # @example Sub-graph composition
+  #   # Define a workflow
+  #   class NotifyCustomerWorkflow < Ask::Graph
   #     step SendEmail
   #     step LogNotification
   #   end
   #
+  #   # Wrap it in a PORO step
+  #   class NotifyCustomer
+  #     def call(context)
+  #       NotifyCustomerWorkflow.call(context)
+  #     end
+  #   end
+  #
+  #   # Compose — every step is a PORO
   #   class HandleOrder < Ask::Graph
   #     step ValidatePayment
-  #     step NotifyCustomer   # runs the sub-graph, merges its context
+  #     step NotifyCustomer
   #     step ShipOrder
   #   end
   #
@@ -187,9 +196,29 @@ module Ask
         declarations << build_declaration(:approve, klass, opts)
       end
 
-      # Convenience: create instance and call.
+      # Create an instance and run it.
+      #
+      # When +input+ is a {Context}, the graph is run as a sub-graph:
+      # the context data is exported, the graph runs with it, and results
+      # are merged back into the original context automatically.
+      #
+      # @example Standalone — pass data
+      #   MyGraph.call({ user: "alice" })
+      #
+      # @example Inside a step — pass the outer context
+      #   class MyStep
+      #     def call(context)
+      #       OtherGraph.call(context)
+      #     end
+      #   end
       def call(input = nil, storage: nil)
-        new(input, storage: storage).call
+        if input.is_a?(Context)
+          ctx = new(input.export_data, storage: storage).call
+          input.import(ctx)
+          ctx
+        else
+          new(input, storage: storage).call
+        end
       end
       alias run call
 
@@ -224,7 +253,7 @@ module Ask
     attr_reader :runner
     attr_reader :context
 
-    def call
+    def call(*)
       @context = Context.new(self, @input)
       @runner.run(@context)
       @context

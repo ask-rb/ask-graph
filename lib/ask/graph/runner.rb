@@ -133,27 +133,12 @@ module Ask
       end
 
       def run_single(klass, _name, context)
-        if klass < Ask::Graph
-          run_subgraph(klass, context)
-        else
-          instance = klass.new
-          instance.call(context)
-        end
-      rescue Paused, ArgumentError
+        instance = klass.new
+        instance.call(context)
+      rescue Paused
         raise
       rescue => e
         raise StepFailed, "#{klass.name} failed: #{e.message}"
-      end
-
-      def run_subgraph(klass, context)
-        if klass.respond_to?(:declarations) && klass.declarations.any? { |d| d[:type] == :approve }
-          raise ArgumentError,
-                "#{klass.name} contains approve steps — sub-graphs with approve are not yet supported"
-        end
-
-        sub = klass.new(context.export_data, storage: @store)
-        sub_ctx = sub.call
-        context.import(sub_ctx) if sub_ctx
       end
 
       def run_parallel(classes, _name, context)

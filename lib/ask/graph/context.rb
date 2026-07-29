@@ -123,6 +123,26 @@ module Ask
         @mutex.synchronize { @store.merge!(data) }
       end
 
+      # Run an {Ask::Graph} as a sub-graph, merging its context back.
+      #
+      # Exports the current context data, creates the sub-graph with it,
+      # runs it, and merges any results back into this context.
+      #
+      # @param graph_class [Class < Ask::Graph] the graph to run
+      # @return [Ask::Graph::Context] the sub-graph's context
+      # @example
+      #   class CalculateShipping
+      #     def call(context)
+      #       context.run(ShippingWorkflow)
+      #     end
+      #   end
+      def run(graph_class)
+        sub = graph_class.new(export_data)
+        sub_ctx = sub.call
+        import(sub_ctx)
+        sub_ctx
+      end
+
       private
 
       # Recursively convert a value to a JSON-safe structure.

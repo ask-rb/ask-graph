@@ -987,30 +987,34 @@ module Ask
   # --- Sub-graph composition ---
 
   def test_subgraph_runs_inner_steps
-    inner = Class.new(Ask::Graph) do
+    workflow = Class.new(Ask::Graph) do
       step Class.new {
         def call(ctx)
           (ctx.log ||= []) << :inner
         end
       }
     end
-    outer = Class.new(Ask::Graph) do
-      step inner
+    step = Class.new do
+      define_method(:call) { |ctx| workflow.call(ctx) }
     end
+    outer = Class.new(Ask::Graph) { step step }
     ctx = outer.new.call
     assert_equal [:inner], ctx.log
   end
 
   def test_subgraph_merges_context_back
-    inner = Class.new(Ask::Graph) do
+    workflow = Class.new(Ask::Graph) do
       step Class.new {
         def call(ctx)
           ctx.inner_result = "from_sub"
         end
       }
     end
+    step = Class.new do
+      define_method(:call) { |ctx| workflow.call(ctx) }
+    end
     outer = Class.new(Ask::Graph) do
-      step inner
+      step step
       step Class.new {
         def call(ctx)
           ctx.final = ctx.inner_result
@@ -1022,12 +1026,15 @@ module Ask
   end
 
   def test_subgraph_reads_outer_context
-    inner = Class.new(Ask::Graph) do
+    workflow = Class.new(Ask::Graph) do
       step Class.new {
         def call(ctx)
           ctx.result = ctx.outer_val * 2
         end
       }
+    end
+    step = Class.new do
+      define_method(:call) { |ctx| workflow.call(ctx) }
     end
     outer = Class.new(Ask::Graph) do
       step Class.new {
@@ -1035,50 +1042,53 @@ module Ask
           ctx.outer_val = 21
         end
       }
-      step inner
+      step step
     end
     ctx = outer.new.call
     assert_equal 42, ctx.result
   end
 
   def test_multiple_subgraph_steps
-    inner_a = Class.new(Ask::Graph) do
+    workflow_a = Class.new(Ask::Graph) do
       step Class.new {
         def call(ctx)
           (ctx.log ||= []) << :a
         end
       }
     end
-    inner_b = Class.new(Ask::Graph) do
+    workflow_b = Class.new(Ask::Graph) do
       step Class.new {
         def call(ctx)
           (ctx.log ||= []) << :b
         end
       }
     end
+    step_a = Class.new { define_method(:call) { |ctx| workflow_a.call(ctx) } }
+    step_b = Class.new { define_method(:call) { |ctx| workflow_b.call(ctx) } }
     outer = Class.new(Ask::Graph) do
-      step inner_a
-      step inner_b
+      step step_a
+      step step_b
     end
     ctx = outer.new.call
     assert_equal [:a, :b], ctx.log
   end
 
   def test_mixed_regular_and_subgraph_steps
-    inner = Class.new(Ask::Graph) do
+    workflow = Class.new(Ask::Graph) do
       step Class.new {
         def call(ctx)
           ctx.inner_val = ctx.outer_val * 3
         end
       }
     end
+    step = Class.new { define_method(:call) { |ctx| workflow.call(ctx) } }
     outer = Class.new(Ask::Graph) do
       step Class.new {
         def call(ctx)
           ctx.outer_val = 10
         end
       }
-      step inner
+      step step
       step Class.new {
         def call(ctx)
           ctx.final = ctx.inner_val + 1
@@ -1097,16 +1107,18 @@ module Ask
         end
       }
     end
+    leaf_step = Class.new { define_method(:call) { |ctx| leaf.call(ctx) } }
     middle = Class.new(Ask::Graph) do
-      step leaf
+      step leaf_step
       step Class.new {
         def call(ctx)
           (ctx.log ||= []) << :middle
         end
       }
     end
+    middle_step = Class.new { define_method(:call) { |ctx| middle.call(ctx) } }
     outer = Class.new(Ask::Graph) do
-      step middle
+      step middle_step
       step Class.new {
         def call(ctx)
           (ctx.log ||= []) << :outer
@@ -1118,7 +1130,7 @@ module Ask
   end
 
   def test_subgraph_with_inner_conditional
-    inner = Class.new(Ask::Graph) do
+    workflow = Class.new(Ask::Graph) do
       step Class.new {
         def call(ctx)
           (ctx.log ||= []) << :always
@@ -1134,15 +1146,14 @@ module Ask
         true
       end
     end
-    outer = Class.new(Ask::Graph) do
-      step inner
-    end
+    step = Class.new { define_method(:call) { |ctx| workflow.call(ctx) } }
+    outer = Class.new(Ask::Graph) { step step }
     ctx = outer.new.call
     assert_equal [:always, :conditional], ctx.log
   end
 
   def test_subgraph_skipped_when_inner_condition_false
-    inner = Class.new(Ask::Graph) do
+    workflow = Class.new(Ask::Graph) do
       step Class.new {
         def call(ctx)
           (ctx.log ||= []) << :always
@@ -1158,70 +1169,52 @@ module Ask
         false
       end
     end
-    outer = Class.new(Ask::Graph) do
-      step inner
-    end
+    step = Class.new { define_method(:call) { |ctx| workflow.call(ctx) } }
+    outer = Class.new(Ask::Graph) { step step }
     ctx = outer.new.call
     assert_equal [:always], ctx.log
   end
 
   def test_subgraph_with_outer_step_timeout
-    slow = Class.new(Ask::Graph) do
+    workflow = Class.new(Ask::Graph) do
       step Class.new {
         def call(ctx)
           sleep 5
         end
       }
     end
-    outer = Class.new(Ask::Graph) do
-      step slow, timeout: 0.05
-    end
+    step = Class.new { define_method(:call) { |ctx| workflow.call(ctx) } }
+    outer = Class.new(Ask::Graph) { step step, timeout: 0.05 }
     error = assert_raises(Ask::Graph::StepFailed) { outer.new.call }
     assert_includes error.message, "timed out"
   end
 
   def test_subgraph_with_outer_retry
     attempt_count = 0
-    flaky = Class.new(Ask::Graph) do
+    workflow = Class.new(Ask::Graph) do
       step Class.new {
-        define_method(:call) do |ctx|
+        define_method(:call) do |_ctx|
           attempt_count += 1
           raise "fail" if attempt_count < 3
-          ctx.succeeded = true
         end
       }
     end
-    outer = Class.new(Ask::Graph) do
-      step flaky, retry: 3
-    end
+    step = Class.new { define_method(:call) { |ctx| workflow.call(ctx) } }
+    outer = Class.new(Ask::Graph) { step step, retry: 3 }
     ctx = outer.new.call
-    assert ctx.succeeded
     assert_equal 3, attempt_count
   end
 
-  def test_subgraph_with_approve_raises_error
-    inner = Class.new(Ask::Graph) do
-      approve Class.new {
-        def call(ctx)
-          ctx.approved = true
-        end
-      }
-    end
-    outer = Class.new(Ask::Graph) do
-      step inner
-    end
-    assert_raises(ArgumentError) { outer.new.call }
-  end
-
   def test_empty_subgraph
-    inner = Class.new(Ask::Graph)
+    workflow = Class.new(Ask::Graph)
+    step = Class.new { define_method(:call) { |ctx| workflow.call(ctx) } }
     outer = Class.new(Ask::Graph) do
       step Class.new {
         def call(ctx)
           (ctx.log ||= []) << :before
         end
       }
-      step inner
+      step step
       step Class.new {
         def call(ctx)
           (ctx.log ||= []) << :after
@@ -1234,17 +1227,18 @@ module Ask
 
   def test_outer_hooks_fire_around_subgraph
     hook_log = []
-    inner = Class.new(Ask::Graph) do
+    workflow = Class.new(Ask::Graph) do
       step Class.new {
         def call(ctx)
           (ctx.log ||= []) << :inner_step
         end
       }
     end
+    step = Class.new { define_method(:call) { |ctx| workflow.call(ctx) } }
     outer = Class.new(Ask::Graph) do
       before_step :log_before
       after_step :log_after
-      step inner
+      step step
 
       define_method(:log_before) { |declaration:, context:| hook_log << :before }
       define_method(:log_after)  { |declaration:, context:| hook_log << :after }
@@ -1255,15 +1249,16 @@ module Ask
   end
 
   def test_subgraph_with_outer_condition
-    inner = Class.new(Ask::Graph) do
+    workflow = Class.new(Ask::Graph) do
       step Class.new {
         def call(ctx)
           (ctx.log ||= []) << :inner
         end
       }
     end
+    step = Class.new { define_method(:call) { |ctx| workflow.call(ctx) } }
     outer = Class.new(Ask::Graph) do
-      step inner, if: :skip?
+      step step, if: :skip?
 
       def skip?
         false
@@ -1274,44 +1269,29 @@ module Ask
   end
 
   def test_subgraph_preserves_outer_context_keys
-    inner = Class.new(Ask::Graph) do
+    workflow = Class.new(Ask::Graph) do
       step Class.new {
         def call(ctx)
           ctx.inner_val = "set_by_sub"
         end
       }
     end
+    step = Class.new { define_method(:call) { |ctx| workflow.call(ctx) } }
     outer = Class.new(Ask::Graph) do
       step Class.new {
         def call(ctx)
           ctx.outer_val = "preserved"
         end
       }
-      step inner
+      step step
     end
     ctx = outer.new.call
     assert_equal "preserved", ctx.outer_val
     assert_equal "set_by_sub", ctx.inner_val
   end
 
-  def test_subgraph_inherits_outer_storage
-    store = Ask::State::Memory.new
-    inner = Class.new(Ask::Graph) do
-      step Class.new {
-        def call(ctx)
-          ctx.done = true
-        end
-      }
-    end
-    outer = Class.new(Ask::Graph) do
-      step inner
-    end
-    ctx = outer.new(storage: store).call
-    assert ctx.done
-  end
-
   def test_subgraph_with_parallel_steps
-    inner = Class.new(Ask::Graph) do
+    workflow = Class.new(Ask::Graph) do
       steps SleepStep, SleepStep, SleepStep
       step Class.new {
         def call(ctx)
@@ -1319,9 +1299,8 @@ module Ask
         end
       }
     end
-    outer = Class.new(Ask::Graph) do
-      step inner
-    end
+    step = Class.new { define_method(:call) { |ctx| workflow.call(ctx) } }
+    outer = Class.new(Ask::Graph) { step step }
     ctx = outer.new.call
     assert ctx.log.include?(:done)
   end

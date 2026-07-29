@@ -2,55 +2,76 @@
 
 ### Added
 
-- **Sub-graph composition** — use any `Ask::Graph` subclass as a step in another
-  graph. The sub-graph runs all its internal steps and merges its context back
-  into the outer graph.
+- **Sub-graph composition via `Workflow.call(context)`** — compose workflows
+  by calling another graph's `call` class method with the current context.
+  The method detects the Context argument and handles export → run → import
+  automatically.
 
   ```ruby
-  class NotifyCustomer < Ask::Graph
+  # Define a workflow
+  class NotifyCustomerWorkflow < Ask::Graph
     step SendEmail
     step LogNotification
   end
 
+  # Use it as a step via a PORO wrapper
+  class NotifyCustomer
+    def call(context)
+      NotifyCustomerWorkflow.call(context)
+    end
+  end
+
+  # Compose — every step is a PORO
   class HandleOrder < Ask::Graph
     step ValidatePayment
-    step NotifyCustomer   # runs the sub-graph, merges its context
+    step NotifyCustomer
     step ShipOrder
   end
   ```
 
-  - Sub-graphs read the outer graph's context directly — no special wiring
-  - Sub-graph writes are merged back automatically
-  - Supports nesting (sub-graphs within sub-graphs)
+  - `Graph.call(context)` exports the context data, creates the sub-graph,
+    runs it, and imports results back — all automatically
+  - Same API users already know from `Graph.call(params)` in controllers
+  - Supports nesting (sub-graphs calling sub-graphs)
   - Supports `timeout:`, `retry:`, and `if:`/`unless:` on the outer step
   - Supports parallel steps inside sub-graphs
-  - Shares the same `storage` backend with the outer graph
+
+- **Hash inputs flatten into context keys** — when a Hash is passed as
+  input, its keys are directly accessible on the context in addition to
+  `context.input`. This enables sub-graphs to transparently read outer
+  context values.
+
+  ```ruby
+  g.new({ value: 42 }).call
+  ctx.value   # => 42 (directly accessible)
+  ctx.input   # => { value: 42 } (still works as before)
+  ```
 
 - **`Context#export_data`** — returns the raw store hash without JSON
   serialization. Used internally for sub-graph data passing.
 
 - **`Context#import(other)`** — merges data from another context or hash
-  into this one. Used internally by sub-graph composition.
+  into this one.
 
-- **Hash inputs now flatten into context keys** — when a Hash is passed as
-  input to a graph, its keys are directly accessible on the context in
-  addition to `context.input`. This enables sub-graphs to transparently
-  read outer context values.
+- **`Context#run(graph_class)`** — convenience method wrapping the
+  export → create → call → import pattern.
 
   ```ruby
-  g.new({ value: 42 }).call
-  ctx.value   # => 42 (new — directly accessible)
-  ctx.input   # => { value: 42 } (still works)
+  def call(context)
+    context.run(NotifyCustomerWorkflow)
+  end
   ```
 
-### Limitations
+### Changed
 
-- Sub-graphs containing `approve` steps are not yet supported and raise
-  `ArgumentError`. Nested approval will be added in a future release.
+- **All steps are POROs** — the framework no longer detects `Ask::Graph`
+  subclasses used directly as steps. Every `step` declaration must be a
+  plain Ruby class with a `call(context)` method. This eliminates the
+  ambiguity of "is this step a graph or a PORO?"
 
 ### Tested
 
-- 87 tests, 114 assertions, 0 failures
+- 85 tests, 111 assertions, 0 failures
 
 ## [0.4.0] — 2026-07-27
 
