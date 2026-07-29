@@ -46,6 +46,37 @@ module Ask
         subclass.instance_variable_set(:@lifecycle_hooks, lifecycle_hooks.dup)
       end
 
+      # --- Timeout ---
+
+      # Set or get the default timeout (in seconds) for steps in this graph.
+      # Steps without an explicit +timeout:+ option will inherit this value.
+      # Setting on {Ask::Graph} itself applies to all graphs that don't set
+      # their own default — a global default.
+      #
+      # @example Global default for all graphs
+      #   Ask::Graph.timeout 30
+      #
+      # @example Per-graph override
+      #   class MyGraph < Ask::Graph
+      #     timeout 15
+      #     step FastOp          # uses 15s
+      #     step SlowOp, timeout: 60  # overrides
+      #   end
+      #
+      # @param seconds [Integer, nil] timeout in seconds, or nil to clear
+      # @return [Integer, nil] the current default timeout for this graph
+      def timeout(seconds = :not_set)
+        if seconds == :not_set
+          if instance_variable_defined?(:@timeout)
+            @timeout
+          elsif superclass.respond_to?(:timeout)
+            superclass.timeout
+          end
+        else
+          @timeout = seconds
+        end
+      end
+
       # --- Lifecycle hooks ---
 
       def lifecycle_hooks
@@ -139,7 +170,8 @@ module Ask
       @runner = Runner.new(self.class.declarations,
                            checkpoint_store: store,
                            hooks: hooks,
-                           graph_instance: self)
+                           graph_instance: self,
+                           default_timeout: self.class.timeout)
       @context = nil
     end
 

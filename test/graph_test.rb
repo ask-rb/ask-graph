@@ -775,5 +775,124 @@ module Ask
     end
     assert_raises(Ask::Graph::StepFailed) { g.new.call }
   end
+
+  # --- default_timeout ---
+
+  def test_default_timeout_applied_to_step_without_explicit_timeout
+    g = Class.new(Ask::Graph) do
+      timeout 0.05
+      step Class.new {
+        def call(ctx)
+          sleep 5
+        end
+      }
+    end
+    error = assert_raises(Ask::Graph::StepFailed) { g.new.call }
+    assert_includes error.message, "timed out"
+  end
+
+  def test_step_explicit_timeout_overrides_graph_default
+    g = Class.new(Ask::Graph) do
+      timeout 30
+      step Class.new {
+        def call(ctx)
+          sleep 0.05
+          ctx.done = true
+        end
+      }, timeout: 0.5
+    end
+    ctx = g.new.call
+    assert ctx.done
+  end
+
+  def test_graph_default_not_used_when_step_has_explicit_timeout
+    g = Class.new(Ask::Graph) do
+      timeout 0.05
+      step Class.new {
+        def call(ctx)
+          ctx.done = true
+        end
+      }, timeout: 30
+    end
+    ctx = g.new.call
+    assert ctx.done
+  end
+
+  def test_no_timeout_when_no_default_and_no_explicit_timeout
+    g = Class.new(Ask::Graph) do
+      step RecordRun
+    end
+    assert_nil g.timeout
+    assert_nil g.declarations.first[:timeout]
+  end
+
+  def test_default_timeout_declaration_stored
+    g = Class.new(Ask::Graph) do
+      timeout 30
+    end
+    assert_equal 30, g.timeout
+  end
+
+  def test_global_default_timeout_on_graph_class
+    Ask::Graph.timeout 0.05
+    g = Class.new(Ask::Graph) do
+      step Class.new {
+        def call(ctx)
+          sleep 5
+        end
+      }
+    end
+    error = assert_raises(Ask::Graph::StepFailed) { g.new.call }
+    assert_includes error.message, "timed out"
+  ensure
+    Ask::Graph.instance_variable_set(:@timeout, nil)
+  end
+
+  def test_child_graph_inherits_parent_default_timeout
+    parent = Class.new(Ask::Graph) do
+      timeout 0.05
+    end
+    child = Class.new(parent) do
+      step Class.new {
+        def call(ctx)
+          sleep 5
+        end
+      }
+    end
+    error = assert_raises(Ask::Graph::StepFailed) { child.new.call }
+    assert_includes error.message, "timed out"
+  end
+
+  def test_child_graph_can_override_parent_default_timeout
+    parent = Class.new(Ask::Graph) do
+      timeout 0.05
+    end
+    child = Class.new(parent) do
+      timeout 30
+      step Class.new {
+        def call(ctx)
+          ctx.done = true
+        end
+      }
+    end
+    ctx = child.new.call
+    assert ctx.done
+  end
+
+  def test_child_nil_timeout_overrides_parent_timeout
+    parent = Class.new(Ask::Graph) do
+      timeout 0.05
+    end
+    child = Class.new(parent) do
+      timeout nil
+      step Class.new {
+        def call(ctx)
+          ctx.done = true
+        end
+      }
+    end
+    ctx = child.new.call
+    assert ctx.done
+  end
 end
 end

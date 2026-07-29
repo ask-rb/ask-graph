@@ -24,13 +24,16 @@ module Ask
       # @param checkpoint_store [#set, #get, #delete] key-value store
       # @param hooks [Hash] lifecycle hook method names
       # @param graph_instance [Object] the graph instance (for hooks)
+      # @param default_timeout [Integer, nil] fallback timeout for steps with no explicit timeout
       def initialize(declarations, checkpoint_store: nil,
                      hooks: { before_step: [], after_step: [], on_failure: [] },
-                     graph_instance: nil)
+                     graph_instance: nil,
+                     default_timeout: nil)
         @declarations = declarations
         @store = checkpoint_store
         @hooks = hooks
         @graph = graph_instance
+        @default_timeout = default_timeout
         @completed_steps = []
       end
 
@@ -90,6 +93,7 @@ module Ask
       end
 
       def run_with_timeout(decl, context, timeout_value)
+        timeout_value ||= @default_timeout
         if timeout_value
           ::Timeout.timeout(timeout_value) { execute_step(decl, context) }
         else

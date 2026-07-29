@@ -1,3 +1,33 @@
+## [0.3.0] — 2026-07-27
+
+### Added
+
+- **Class-level `timeout`** — set a default timeout for all steps in a graph.
+  Steps without an explicit `timeout:` option inherit the class default.
+
+  ```ruby
+  class MyGraph < Ask::Graph
+    timeout 30
+    step FastOp   # uses 30s
+    step SlowOp, timeout: 120  # overrides
+  end
+  ```
+
+- **Global default timeout** — `Ask::Graph.timeout 30` applies to all graphs
+  that don't set their own `timeout`. Resolution order: step option → graph
+  class → `Ask::Graph`.
+
+  ```ruby
+  Ask::Graph.timeout 30
+  ```
+
+- **Child override and clearing** — child graphs can override or clear
+  (`timeout nil`) the parent's default.
+
+### Tested
+
+- 62 tests, 83 assertions, 0 failures
+
 ## [0.2.0] — 2026-07-29
 
 ### Added
