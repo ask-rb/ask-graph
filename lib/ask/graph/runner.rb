@@ -21,16 +21,16 @@ module Ask
       attr_reader :declarations, :store
 
       # @param declarations [Array<Hash>] step declarations
-      # @param checkpoint_store [#set, #get, #delete] key-value store
+      # @param storage [#set, #get, #delete] key-value store for checkpoint data
       # @param hooks [Hash] lifecycle hook method names
       # @param graph_instance [Object] the graph instance (for hooks)
       # @param default_timeout [Integer, nil] fallback timeout for steps with no explicit timeout
-      def initialize(declarations, checkpoint_store: nil,
+      def initialize(declarations, storage: nil,
                      hooks: { before_step: [], after_step: [], on_failure: [] },
                      graph_instance: nil,
                      default_timeout: nil)
         @declarations = declarations
-        @store = checkpoint_store
+        @store = storage
         @hooks = hooks
         @graph = graph_instance
         @default_timeout = default_timeout

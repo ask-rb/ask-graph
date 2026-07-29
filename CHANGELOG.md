@@ -1,3 +1,44 @@
+## [0.4.0] — 2026-07-27
+
+### Changed
+
+- **`checkpoint_store:` renamed to `storage:`** — shorter, more general name
+  for the backend that persists checkpoint data for crash recovery.
+
+  ```ruby
+  # Before
+  MyGraph.call(input, checkpoint_store: RedisPool.new)
+  g.new(input, checkpoint_store: RedisPool.new)
+
+  # After
+  MyGraph.call(input, storage: RedisPool.new)
+  g.new(input, storage: RedisPool.new)
+  ```
+
+### Added
+
+- **Class-level `storage`** — set once at the class level instead of passing
+  per-call. Works the same as `timeout`: per-call → graph class → global.
+
+  ```ruby
+  # Global default for all graphs
+  Ask::Graph.storage RedisPool.new
+
+  # Per-graph override
+  class MyGraph < Ask::Graph
+    storage PostgresStore.new
+  end
+
+  # Per-call override (overrides everything)
+  MyGraph.call(input, storage: InMemory.new)
+  ```
+
+  Falls back to `Ask::State::Memory.new` when nothing is configured.
+
+### Tested
+
+- 70 tests, 92 assertions, 0 failures
+
 ## [0.3.0] — 2026-07-27
 
 ### Added

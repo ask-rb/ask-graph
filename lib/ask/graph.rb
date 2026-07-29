@@ -77,6 +77,39 @@ module Ask
         end
       end
 
+      # --- Storage ---
+
+      # Set or get the default storage backend for checkpoint data.
+      # The storage object must respond to +#set(key, value)+ and +#get(key)+.
+      #
+      # Setting on {Ask::Graph} itself applies to all graphs that don't set
+      # their own storage — a global default.
+      #
+      # @example Global default for all graphs
+      #   Ask::Graph.storage RedisPool.new
+      #
+      # @example Per-graph override
+      #   class MyGraph < Ask::Graph
+      #     storage PostgresStore.new
+      #   end
+      #
+      # @example Per-call override
+      #   MyGraph.call(input, storage: InMemory.new)
+      #
+      # @param store [Object, nil] a backend that responds to +#set+ and +#get+
+      # @return [Object, nil] the current storage for this graph
+      def storage(store = :not_set)
+        if store == :not_set
+          if instance_variable_defined?(:@storage)
+            @storage
+          elsif superclass.respond_to?(:storage)
+            superclass.storage
+          end
+        else
+          @storage = store
+        end
+      end
+
       # --- Lifecycle hooks ---
 
       def lifecycle_hooks
@@ -142,8 +175,8 @@ module Ask
       end
 
       # Convenience: create instance and call.
-      def call(input = nil, checkpoint_store: nil)
-        new(input, checkpoint_store: checkpoint_store).call
+      def call(input = nil, storage: nil)
+        new(input, storage: storage).call
       end
       alias run call
 
@@ -163,12 +196,12 @@ module Ask
       end
     end
 
-    def initialize(input = nil, checkpoint_store: nil)
+    def initialize(input = nil, storage: nil)
       @input = input
-      store = checkpoint_store || Ask::State::Memory.new
+      store = storage || self.class.storage || Ask::State::Memory.new
       hooks = self.class.lifecycle_hooks
       @runner = Runner.new(self.class.declarations,
-                           checkpoint_store: store,
+                           storage: store,
                            hooks: hooks,
                            graph_instance: self,
                            default_timeout: self.class.timeout)
