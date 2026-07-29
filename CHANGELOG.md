@@ -1,3 +1,57 @@
+## [0.5.0] — 2026-07-27
+
+### Added
+
+- **Sub-graph composition** — use any `Ask::Graph` subclass as a step in another
+  graph. The sub-graph runs all its internal steps and merges its context back
+  into the outer graph.
+
+  ```ruby
+  class NotifyCustomer < Ask::Graph
+    step SendEmail
+    step LogNotification
+  end
+
+  class HandleOrder < Ask::Graph
+    step ValidatePayment
+    step NotifyCustomer   # runs the sub-graph, merges its context
+    step ShipOrder
+  end
+  ```
+
+  - Sub-graphs read the outer graph's context directly — no special wiring
+  - Sub-graph writes are merged back automatically
+  - Supports nesting (sub-graphs within sub-graphs)
+  - Supports `timeout:`, `retry:`, and `if:`/`unless:` on the outer step
+  - Supports parallel steps inside sub-graphs
+  - Shares the same `storage` backend with the outer graph
+
+- **`Context#export_data`** — returns the raw store hash without JSON
+  serialization. Used internally for sub-graph data passing.
+
+- **`Context#import(other)`** — merges data from another context or hash
+  into this one. Used internally by sub-graph composition.
+
+- **Hash inputs now flatten into context keys** — when a Hash is passed as
+  input to a graph, its keys are directly accessible on the context in
+  addition to `context.input`. This enables sub-graphs to transparently
+  read outer context values.
+
+  ```ruby
+  g.new({ value: 42 }).call
+  ctx.value   # => 42 (new — directly accessible)
+  ctx.input   # => { value: 42 } (still works)
+  ```
+
+### Limitations
+
+- Sub-graphs containing `approve` steps are not yet supported and raise
+  `ArgumentError`. Nested approval will be added in a future release.
+
+### Tested
+
+- 87 tests, 114 assertions, 0 failures
+
 ## [0.4.0] — 2026-07-27
 
 ### Changed

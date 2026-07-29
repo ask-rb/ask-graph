@@ -31,7 +31,12 @@ module Ask
         @item = nil
         @mutex = Mutex.new
         @resume_input = nil
-        @store[:input] = input if input
+        if input.is_a?(Hash)
+          @store[:input] = input
+          @store.merge!(input)
+        elsif input
+          @store[:input] = input
+        end
       end
 
       # @return [Object, nil] input provided on resume for approval steps
@@ -100,6 +105,22 @@ module Ask
         @mutex.synchronize do
           deep_json_safe(@store)
         end
+      end
+
+      # @return [Hash] raw store data with original object references.
+      # Unlike {to_h}, this returns the actual Ruby objects without
+      # serialization. Useful for passing state to sub-graphs.
+      def export_data
+        @mutex.synchronize { @store.dup }
+      end
+
+      # Merge data from another context (or hash) into this one.
+      # Existing keys in this context are overwritten.
+      #
+      # @param other [Context, Hash] source of data to merge in
+      def import(other)
+        data = other.is_a?(Context) ? other.export_data : other
+        @mutex.synchronize { @store.merge!(data) }
       end
 
       private

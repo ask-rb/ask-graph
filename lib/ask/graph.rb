@@ -6,14 +6,27 @@ require_relative "graph/runner"
 
 module Ask
   # Define durable workflow graphs with named steps, conditional routing,
-  # parallel execution, human-in-the-loop approval, per-item checkpointing
-  # loops, step timeouts, retry policies, and lifecycle hooks.
+  # parallel execution, sub-graph composition, human-in-the-loop approval,
+  # per-item checkpointing loops, step timeouts, retry policies, and
+  # lifecycle hooks.
   #
   # @example Basic workflow
   #   class HandleCall < Ask::Graph
   #     step Transcribe
   #     step Classify, if: :needs_classification?
   #     step BookAppointment
+  #   end
+  #
+  # @example Sub-graph composition (reuse a graph as a step)
+  #   class NotifyCustomer < Ask::Graph
+  #     step SendEmail
+  #     step LogNotification
+  #   end
+  #
+  #   class HandleOrder < Ask::Graph
+  #     step ValidatePayment
+  #     step NotifyCustomer   # runs the sub-graph, merges its context
+  #     step ShipOrder
   #   end
   #
   # @example With timeout and retry
