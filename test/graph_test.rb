@@ -1033,6 +1033,13 @@ module Ask
     assert_same store, g.storage
   end
 
+  def test_storage_assignment_form
+    store = Ask::State::Memory.new
+    g = Class.new(Ask::Graph)
+    g.storage = store
+    assert_same store, g.storage
+  end
+
   def test_no_storage_returns_nil
     g = Class.new(Ask::Graph)
     assert_nil g.storage

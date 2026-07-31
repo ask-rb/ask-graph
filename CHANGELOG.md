@@ -1,3 +1,14 @@
+## [0.7.1] — 2026-07-31
+
+### Added
+
+- **`storage=` setter** — assignment form of the class-level `storage` method,
+  convenient in initializers: `Ask::Graph.storage = RedisPool.new`.
+
+### Tested
+
+- 96 tests, 130 assertions, 0 failures
+
 ## [0.7.0] — 2026-07-31
 
 ### Added

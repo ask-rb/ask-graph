@@ -169,6 +169,12 @@ module Ask
         end
       end
 
+      # Assignment form of {#storage} — convenient in initializers:
+      #   Ask::Graph.storage = RedisPool.new
+      def storage=(store)
+        @storage = store
+      end
+
       # --- Lifecycle hooks ---
 
       def lifecycle_hooks
