@@ -11,6 +11,9 @@ module Ask
     # Error raised when a step times out.
     class StepTimeout < StandardError; end
 
+    # Error raised when the entire workflow exceeds its total runtime cap.
+    class WorkflowTimeout < StandardError; end
+
     # Error raised when a step pauses for human approval.
     class Paused < StandardError; end
 
@@ -24,20 +27,51 @@ module Ask
       # @param storage [#set, #get, #delete] key-value store for checkpoint data
       # @param hooks [Hash] lifecycle hook method names
       # @param graph_instance [Object] the graph instance (for hooks)
-      # @param default_timeout [Integer, nil] fallback timeout for steps with no explicit timeout
+      # @param step_timeout [Integer, nil] fallback timeout for steps with no explicit timeout
+      # @param workflow_timeout [Integer, nil] total runtime cap for the whole run
       def initialize(declarations, storage: nil,
                      hooks: { before_step: [], after_step: [], on_failure: [] },
                      graph_instance: nil,
-                     default_timeout: nil)
+                     step_timeout: nil,
+                     workflow_timeout: nil)
         @declarations = declarations
         @store = storage
         @hooks = hooks
         @graph = graph_instance
-        @default_timeout = default_timeout
+        @step_timeout = step_timeout
+        @workflow_timeout = workflow_timeout
         @completed_steps = []
       end
 
       def run(context)
+        if @workflow_timeout
+          ::Timeout.timeout(@workflow_timeout) { run_steps(context) }
+        else
+          run_steps(context)
+        end
+      rescue ::Timeout::Error
+        raise WorkflowTimeout, "workflow timed out after #{@workflow_timeout}s"
+      end
+
+      def resume(context, input:)
+        context.resume_input = input
+        run(context)
+      end
+
+      def resume_index_for(items)
+        key = each_checkpoint_key
+        raw = @store.get(key)
+        raw ? raw.to_i : nil
+      end
+
+      def checkpoint_each!(index)
+        key = each_checkpoint_key
+        @store.set(key, index.to_s)
+      end
+
+      private
+
+      def run_steps(context)
         resume_index = load_checkpoint(context)
 
         @declarations.each_with_index do |decl, idx|
@@ -59,24 +93,6 @@ module Ask
         context
       end
 
-      def resume(context, input:)
-        context.resume_input = input
-        run(context)
-      end
-
-      def resume_index_for(items)
-        key = each_checkpoint_key
-        raw = @store.get(key)
-        raw ? raw.to_i : nil
-      end
-
-      def checkpoint_each!(index)
-        key = each_checkpoint_key
-        @store.set(key, index.to_s)
-      end
-
-      private
-
       def execute_with_retry(decl, context)
         retries = decl[:retry] || 0
 
@@ -93,7 +109,7 @@ module Ask
       end
 
       def run_with_timeout(decl, context, timeout_value)
-        timeout_value ||= @default_timeout
+        timeout_value ||= @step_timeout
         if timeout_value
           ::Timeout.timeout(timeout_value) { execute_step(decl, context) }
         else

@@ -73,36 +73,68 @@ module Ask
           lifecycle_hooks.transform_values(&:dup))
       end
 
-      # --- Timeout ---
+      # --- Timeouts ---
 
-      # Set or get the default timeout (in seconds) for steps in this graph.
-      # Steps without an explicit +timeout:+ option will inherit this value.
+      # Set or get the default timeout (in seconds) for each step in this graph.
+      # Steps without an explicit +timeout:+ option inherit this value.
       # Setting on {Ask::Graph} itself applies to all graphs that don't set
       # their own default — a global default.
       #
       # @example Global default for all graphs
-      #   Ask::Graph.timeout 30
+      #   Ask::Graph.default_step_timeout 30
       #
       # @example Per-graph override
       #   class MyGraph < Ask::Graph
-      #     timeout 15
+      #     step_timeout 15
       #     step FastOp          # uses 15s
       #     step SlowOp, timeout: 60  # overrides
       #   end
       #
       # @param seconds [Integer, nil] timeout in seconds, or nil to clear
-      # @return [Integer, nil] the current default timeout for this graph
-      def timeout(seconds = :not_set)
+      # @return [Integer, nil] the current default step timeout for this graph
+      def step_timeout(seconds = :not_set)
         if seconds == :not_set
-          if instance_variable_defined?(:@timeout)
-            @timeout
-          elsif superclass.respond_to?(:timeout)
-            superclass.timeout
+          if instance_variable_defined?(:@step_timeout)
+            @step_timeout
+          elsif superclass.respond_to?(:step_timeout)
+            superclass.step_timeout
           end
         else
-          @timeout = seconds
+          @step_timeout = seconds
         end
       end
+      alias default_step_timeout step_timeout
+
+      # Set or get the total runtime cap (in seconds) for the entire graph.
+      # The whole workflow aborts with {Ask::Graph::WorkflowTimeout} if it
+      # exceeds this limit, regardless of individual step timeouts.
+      # Setting on {Ask::Graph} itself applies to all graphs that don't set
+      # their own default — a global default.
+      #
+      # @example Global default for all graphs
+      #   Ask::Graph.default_workflow_timeout 60
+      #
+      # @example Per-graph override
+      #   class MyGraph < Ask::Graph
+      #     workflow_timeout 30
+      #     step FetchData, timeout: 10
+      #     step ProcessData, timeout: 10
+      #   end
+      #
+      # @param seconds [Integer, nil] timeout in seconds, or nil to clear
+      # @return [Integer, nil] the current workflow timeout for this graph
+      def workflow_timeout(seconds = :not_set)
+        if seconds == :not_set
+          if instance_variable_defined?(:@workflow_timeout)
+            @workflow_timeout
+          elsif superclass.respond_to?(:workflow_timeout)
+            superclass.workflow_timeout
+          end
+        else
+          @workflow_timeout = seconds
+        end
+      end
+      alias default_workflow_timeout workflow_timeout
 
       # --- Storage ---
 
@@ -251,7 +283,8 @@ module Ask
                            storage: store,
                            hooks: hooks,
                            graph_instance: self,
-                           default_timeout: self.class.timeout)
+                           step_timeout: self.class.step_timeout,
+                           workflow_timeout: self.class.workflow_timeout)
       @context = nil
     end
 

@@ -780,7 +780,7 @@ module Ask
 
   def test_default_timeout_applied_to_step_without_explicit_timeout
     g = Class.new(Ask::Graph) do
-      timeout 0.05
+      step_timeout 0.05
       step Class.new {
         def call(ctx)
           sleep 5
@@ -793,7 +793,7 @@ module Ask
 
   def test_step_explicit_timeout_overrides_graph_default
     g = Class.new(Ask::Graph) do
-      timeout 30
+      step_timeout 30
       step Class.new {
         def call(ctx)
           sleep 0.05
@@ -807,7 +807,7 @@ module Ask
 
   def test_graph_default_not_used_when_step_has_explicit_timeout
     g = Class.new(Ask::Graph) do
-      timeout 0.05
+      step_timeout 0.05
       step Class.new {
         def call(ctx)
           ctx.done = true
@@ -822,19 +822,19 @@ module Ask
     g = Class.new(Ask::Graph) do
       step RecordRun
     end
-    assert_nil g.timeout
+    assert_nil g.step_timeout
     assert_nil g.declarations.first[:timeout]
   end
 
   def test_default_timeout_declaration_stored
     g = Class.new(Ask::Graph) do
-      timeout 30
+      step_timeout 30
     end
-    assert_equal 30, g.timeout
+    assert_equal 30, g.step_timeout
   end
 
   def test_global_default_timeout_on_graph_class
-    Ask::Graph.timeout 0.05
+    Ask::Graph.default_step_timeout 0.05
     g = Class.new(Ask::Graph) do
       step Class.new {
         def call(ctx)
@@ -845,12 +845,12 @@ module Ask
     error = assert_raises(Ask::Graph::StepFailed) { g.new.call }
     assert_includes error.message, "timed out"
   ensure
-    Ask::Graph.instance_variable_set(:@timeout, nil)
+    Ask::Graph.instance_variable_set(:@step_timeout, nil)
   end
 
   def test_child_graph_inherits_parent_default_timeout
     parent = Class.new(Ask::Graph) do
-      timeout 0.05
+      step_timeout 0.05
     end
     child = Class.new(parent) do
       step Class.new {
@@ -865,10 +865,10 @@ module Ask
 
   def test_child_graph_can_override_parent_default_timeout
     parent = Class.new(Ask::Graph) do
-      timeout 0.05
+      step_timeout 0.05
     end
     child = Class.new(parent) do
-      timeout 30
+      step_timeout 30
       step Class.new {
         def call(ctx)
           ctx.done = true
@@ -881,10 +881,10 @@ module Ask
 
   def test_child_nil_timeout_overrides_parent_timeout
     parent = Class.new(Ask::Graph) do
-      timeout 0.05
+      step_timeout 0.05
     end
     child = Class.new(parent) do
-      timeout nil
+      step_timeout nil
       step Class.new {
         def call(ctx)
           ctx.done = true
@@ -892,6 +892,134 @@ module Ask
       }
     end
     ctx = child.new.call
+    assert ctx.done
+  end
+
+  # --- workflow_timeout ---
+
+  def test_workflow_timeout_aborts_entire_workflow
+    g = Class.new(Ask::Graph) do
+      workflow_timeout 0.05
+      step Class.new {
+        def call(ctx)
+          sleep 5
+        end
+      }
+    end
+    error = assert_raises(Ask::Graph::WorkflowTimeout) { g.new.call }
+    assert_includes error.message, "timed out"
+  end
+
+  def test_workflow_timeout_fires_across_multiple_steps
+    g = Class.new(Ask::Graph) do
+      workflow_timeout 0.1
+      step Class.new {
+        def call(ctx)
+          sleep 0.08
+        end
+      }
+      step Class.new {
+        def call(ctx)
+          sleep 0.08
+        end
+      }
+    end
+    error = assert_raises(Ask::Graph::WorkflowTimeout) { g.new.call }
+    assert_includes error.message, "timed out"
+  end
+
+  def test_workflow_timeout_not_triggered_within_budget
+    g = Class.new(Ask::Graph) do
+      workflow_timeout 30
+      step Class.new {
+        def call(ctx)
+          ctx.done = true
+        end
+      }
+    end
+    ctx = g.new.call
+    assert ctx.done
+  end
+
+  def test_global_default_workflow_timeout_on_graph_class
+    Ask::Graph.default_workflow_timeout 0.05
+    g = Class.new(Ask::Graph) do
+      step Class.new {
+        def call(ctx)
+          sleep 5
+        end
+      }
+    end
+    error = assert_raises(Ask::Graph::WorkflowTimeout) { g.new.call }
+    assert_includes error.message, "timed out"
+  ensure
+    Ask::Graph.instance_variable_set(:@workflow_timeout, nil)
+  end
+
+  def test_child_graph_inherits_parent_workflow_timeout
+    parent = Class.new(Ask::Graph) do
+      workflow_timeout 0.05
+    end
+    child = Class.new(parent) do
+      step Class.new {
+        def call(ctx)
+          sleep 5
+        end
+      }
+    end
+    assert_raises(Ask::Graph::WorkflowTimeout) { child.new.call }
+  end
+
+  def test_child_graph_can_override_parent_workflow_timeout
+    parent = Class.new(Ask::Graph) do
+      workflow_timeout 0.05
+    end
+    child = Class.new(parent) do
+      workflow_timeout 30
+      step Class.new {
+        def call(ctx)
+          ctx.done = true
+        end
+      }
+    end
+    ctx = child.new.call
+    assert ctx.done
+  end
+
+  def test_workflow_timeout_declaration_stored
+    g = Class.new(Ask::Graph) do
+      workflow_timeout 60
+    end
+    assert_equal 60, g.workflow_timeout
+  end
+
+  def test_no_workflow_timeout_by_default
+    g = Class.new(Ask::Graph)
+    assert_nil g.workflow_timeout
+  end
+
+  def test_step_timeout_still_applies_within_workflow_timeout
+    g = Class.new(Ask::Graph) do
+      workflow_timeout 30
+      step Class.new {
+        def call(ctx)
+          sleep 5
+        end
+      }, timeout: 0.05
+    end
+    error = assert_raises(Ask::Graph::StepFailed) { g.new.call }
+    assert_includes error.message, "timed out"
+  end
+
+  def test_workflow_timeout_does_not_apply_without_workflow_timeout
+    g = Class.new(Ask::Graph) do
+      step Class.new {
+        def call(ctx)
+          ctx.done = true
+        end
+      }
+    end
+    ctx = g.new.call
     assert ctx.done
   end
 

@@ -1,3 +1,46 @@
+## [0.7.0] — 2026-07-31
+
+### Added
+
+- **`workflow_timeout`** — total runtime cap for the entire workflow. The
+  whole run aborts with `Ask::Graph::WorkflowTimeout` if it exceeds the
+  limit, regardless of individual step timeouts.
+
+  ```ruby
+  class MyWorkflow < Ask::Graph
+    workflow_timeout 60   # whole workflow must finish within 60s
+    step FetchData, timeout: 30
+    step ProcessData, timeout: 30
+  end
+  ```
+
+- **`Ask::Graph.default_workflow_timeout`** — global default total cap for
+  all graphs that don't set their own.
+
+### Changed
+
+- **`timeout` renamed to `step_timeout`** — the class-level default timeout
+  per step is now `step_timeout`. The inline step option `step X, timeout: 10`
+  is unchanged. No alias is kept — the gem is pre-1.0.
+
+  ```ruby
+  # Before
+  class MyWorkflow < Ask::Graph
+    timeout 30
+  end
+  Ask::Graph.timeout 30
+
+  # After
+  class MyWorkflow < Ask::Graph
+    step_timeout 30
+  end
+  Ask::Graph.default_step_timeout 30
+  ```
+
+### Tested
+
+- 95 tests, 129 assertions, 0 failures
+
 ## [0.6.1] — 2026-07-27
 
 ### Fixed
