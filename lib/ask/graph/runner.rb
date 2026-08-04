@@ -2,6 +2,7 @@
 
 require "json"
 require "timeout"
+require "time"
 
 module Ask
   class Graph
