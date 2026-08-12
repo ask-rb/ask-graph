@@ -1,3 +1,9 @@
+## [0.7.2] - 2026-08-04
+
+### Fixed
+
+- **Parallel steps inherit the caller's thread-local state.** `Runner#run_parallel` now copies `Thread.current` locals into each worker thread, so Rails `CurrentAttributes` and similar per-request context reach parallel steps instead of being nil.
+
 ## [0.7.1] — 2026-07-31
 
 ### Added

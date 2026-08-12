@@ -159,8 +159,15 @@ module Ask
       end
 
       def run_parallel(classes, _name, context)
+        # Inherit the caller's thread-local state (Rails CurrentAttributes
+        # and similar frameworks store per-request context in Thread.current)
+        # so parallel steps see the same context as sequential ones.
+        inherited_locals = {}
+        Thread.current.keys.each { |key| inherited_locals[key] = Thread.current[key] }
+
         threads = classes.map do |klass|
           Thread.new do
+            inherited_locals.each { |key, value| Thread.current[key] = value }
             instance = klass.new
             instance.call(context)
           rescue => e
