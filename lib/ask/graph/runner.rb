@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "securerandom"
 require "timeout"
 require "time"
 
@@ -42,6 +43,7 @@ module Ask
         @step_timeout = step_timeout
         @workflow_timeout = workflow_timeout
         @completed_steps = []
+        @run_id = SecureRandom.hex(8)
       end
 
       def run(context)
@@ -203,7 +205,7 @@ module Ask
       RUN_KEY = "ask:graph:run:%s"
 
       def checkpoint_key
-        RUN_KEY % @declarations.object_id.to_s
+        RUN_KEY % "#{@declarations.object_id}:#{@run_id}"
       end
 
       def each_checkpoint_key
