@@ -417,10 +417,12 @@ module Ask
 
       store = Ask::State::Memory.new
       g = Class.new(Ask::Graph) { step step_a }
-      g.new(storage: store).call
+      instance = g.new(storage: store)
+      instance.call
+      captured_run_id = instance.runner.run_id
 
       runs.clear
-      g.new(storage: store).call  # resume — should skip step_a
+      g.new(storage: store, run_id: captured_run_id).call  # resume — should skip step_a
       assert_empty runs, "step should not re-run on resume"
     end
 

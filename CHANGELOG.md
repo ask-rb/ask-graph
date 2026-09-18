@@ -1,3 +1,16 @@
+## [0.7.8] — 2026-09-18
+
+### Fixed
+
+- **Checkpoint resume works again.** The `@run_id` per-invocation isolation fix
+  (0.7.7) inadvertently broke checkpoint resume because each new Runner
+  instance generated a different random key. Now `run_id:` is an optional
+  parameter — omit it for automatic isolation between consecutive runs,
+  or pass the captured `run_id` from a previous run to resume from its
+  checkpoint.
+
+- **Raise the `ask-core` constraint** from `>= 0.11.3` to `>= 0.12.0`.
+
 ## [0.7.2] - 2026-08-04
 
 ### Fixed

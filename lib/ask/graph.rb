@@ -281,7 +281,7 @@ module Ask
       end
     end
 
-    def initialize(input = nil, storage: nil)
+    def initialize(input = nil, storage: nil, run_id: nil)
       @input = input
       store = storage || self.class.storage || Ask::State::Memory.new
       hooks = self.class.lifecycle_hooks
@@ -290,7 +290,8 @@ module Ask
                            hooks: hooks,
                            graph_instance: self,
                            step_timeout: self.class.step_timeout,
-                           workflow_timeout: self.class.workflow_timeout)
+                           workflow_timeout: self.class.workflow_timeout,
+                           run_id: run_id)
       @context = nil
     end
 

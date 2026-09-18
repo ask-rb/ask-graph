@@ -23,7 +23,7 @@ module Ask
     # condition evaluation, parallel execution, timeouts, retries,
     # lifecycle hooks, and human-in-the-loop pauses.
     class Runner
-      attr_reader :declarations, :store
+      attr_reader :declarations, :store, :run_id
 
       # @param declarations [Array<Hash>] step declarations
       # @param storage [#set, #get, #delete] key-value store for checkpoint data
@@ -35,7 +35,8 @@ module Ask
                      hooks: { before_step: [], after_step: [], on_failure: [] },
                      graph_instance: nil,
                      step_timeout: nil,
-                     workflow_timeout: nil)
+                     workflow_timeout: nil,
+                     run_id: nil)
         @declarations = declarations
         @store = storage
         @hooks = hooks
@@ -43,7 +44,7 @@ module Ask
         @step_timeout = step_timeout
         @workflow_timeout = workflow_timeout
         @completed_steps = []
-        @run_id = SecureRandom.hex(8)
+        @run_id = run_id || SecureRandom.hex(8)
       end
 
       def run(context)
